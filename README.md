@@ -1,9 +1,9 @@
 # PREVENT Risk Calculator
 
 A tiny, browser-only calculator for the **American Heart Association PREVENT™
-equations**. Paste the output of an Epic `.PREVENT` SmartPhrase, verify the values,
-and get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD and
-stroke).
+equations**. Paste an Epic `.PREVENT` SmartPhrase — or any Epic text that contains the
+values (a `@BRIEFLABS()@` dump, a results view, a note) — verify the scraped values, and
+get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD and stroke).
 
 **Live app:** https://maxweiss10.github.io/prevent-calculator/
 
@@ -11,6 +11,9 @@ stroke).
   request is loading the static ZIP→SDI lookup file from this same site.
 - **Base + enhanced models.** Add HbA1c, UACR, and/or a ZIP code to also get the
   HbA1c, UACR, SDI, or full models — exactly as the AHA calculator does.
+- **Scrapes unstructured text.** You don't have to type each value. It pulls labs and
+  vitals out of messy Epic output (e.g. `Chol 210, HDL 39`, `A1C 7.4`, `eGFR 90`,
+  `148/86`), and computes eGFR from serum creatinine (CKD-EPI 2021) when eGFR isn't given.
 - **Editable form.** Pasting pre-fills the form; you can correct anything before
   computing. Values out of the validated ranges are flagged; out-of-range optional
   predictors are ignored (falling back to the base model).

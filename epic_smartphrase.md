@@ -1,19 +1,20 @@
 # Epic `.PREVENT` SmartPhrase
 
-This SmartPhrase prints one labeled value per line. Copy the whole block, paste it
-into the [PREVENT calculator](https://maxweiss10.github.io/prevent-calculator/), and
-it parses every line automatically. The labels below are exactly what the calculator
-looks for, so **keep the label text unchanged** — you can change the values freely.
+The calculator does **not** need a rigid format. It scrapes the values out of whatever
+you paste — a `.PREVENT` SmartPhrase, a raw `@BRIEFLABS()@` lab dump, a results view, or
+free-text note. You don't have to type each value. Anything it can't find, you fill in the
+browser form (which is fully editable). So the SmartPhrase's job is just to **dump the data**,
+not to format it perfectly.
 
-There are two versions:
+Two versions:
 
-- **Version A — auto-pull (recommended).** Uses Epic SmartLinks for the data Epic
-  stores discretely (age, sex, blood pressure, BMI). You fill the rest.
-- **Version B — all-manual.** Every value is a `***` wildcard. Works in any Epic
-  build with zero setup. Press **F2** to jump between wildcards.
+- **Version A — auto-pull with `@BRIEFLABS()@` (recommended).** SmartLinks pull age, sex,
+  BP, BMI, and a block of recent labs. You answer four Yes/No questions. The calculator
+  scrapes Total chol, HDL, HbA1c, eGFR (or computes it from creatinine), and UACR out of
+  the lab block.
+- **Version B — all-manual.** Every value a `***` wildcard. Works in any build, zero setup.
 
-The calculator's form is fully editable, so anything that doesn't auto-resolve you
-just type in the browser before computing. Nothing has to be perfect in Epic.
+Press **F2** to jump between wildcards.
 
 ---
 
@@ -23,29 +24,28 @@ just type in the browser before computing. Nothing has to be perfect in Epic.
 PREVENT INPUTS
 Age: @AGE@
 Sex: @SEX@
-Blood pressure: @BP@
+BP: @BP@
 BMI: @BMI@
-eGFR: ***
-Total cholesterol: ***
-HDL: ***
 Diabetes: ***
 Current smoker: ***
 On antihypertensive: ***
 On statin: ***
-HbA1c (optional): ***
-UACR (optional): ***
 ZIP (optional): ***
+Labs: @BRIEFLABS()@
 ```
 
-- `@AGE@`, `@SEX@`, `@BP@` (most recent BP — the calculator uses the systolic
-  number), and `@BMI@` are standard foundation SmartLinks and should resolve at UCSF.
-- Replace the `***` after each **lab** (eGFR, Total cholesterol, HDL, HbA1c, UACR)
-  with your most-recent-result SmartLink if you want those to auto-pull too — see
-  **"Auto-pulling labs"** below. Left as `***`, you just type the value (or fill it
-  in the browser).
-- The four Yes/No lines (Diabetes, Current smoker, On antihypertensive, On statin)
-  are clinical judgments — answer `Yes` or `No`. The calculator also understands
-  `Never`/`Former` (→ not a current smoker), `T2DM`, `active`, `denies`, etc.
+- `@AGE@ @SEX@ @BP@ @BMI@` are standard foundation SmartLinks and should resolve at UCSF.
+  (The calculator takes the systolic number from `@BP@`'s "148/86".)
+- `@BRIEFLABS()@` prints a compact list of recent labs. The calculator finds the
+  PREVENT-relevant ones anywhere in that text — abbreviations and formats like
+  `Chol 210`, `HDL 39`, `A1C 7.4`, `eGFR 90`, `Cr 0.9`, `Microalbumin/Creatinine Ratio 512`
+  all work. It ignores the labs it doesn't need (Na, K, glucose, CBC…).
+- If your `@BRIEFLABS()@` doesn't include a lab you want (some builds limit it to a chem/CBC
+  panel), either pass parameters / add that component's result SmartLink, or just type the
+  one value into the form. **eGFR is optional in the dump** — if only creatinine is present,
+  the calculator computes eGFR with the CKD-EPI 2021 (race-free) equation and flags that it did.
+- The four Yes/No lines are clinical judgments. The calculator understands `Yes`/`No` and
+  also `Never`/`Former` (→ not a current smoker), `T2DM`, `active`, `denies`, etc.
 
 ## Version B — all-manual (works everywhere, no setup)
 
@@ -69,76 +69,37 @@ ZIP (optional): ***
 
 ---
 
-## How to create the SmartPhrase in Epic
+## Create the SmartPhrase in Epic
 
-1. In Epic, open **SmartPhrase Manager** (search "SmartPhrase Manager" in the
-   Epic search box, or **Epic button → Tools → SmartPhrase Manager**).
-2. **New SmartPhrase**. Name it `PREVENT` (so you invoke it by typing `.prevent`).
-   Give it a summary like "PREVENT risk inputs".
-3. Paste one of the blocks above into the content area.
-4. The `@...@` tokens are recognized as SmartLinks automatically (they turn into
-   fields). The `***` are wildcards — leave them as-is.
-5. **Accept / Save**.
-6. In any note, type `.prevent` and press Enter. Epic drops in the block, fills the
-   SmartLinks, and lands you on the first wildcard. Press **F2** to move to the next.
-7. Select the whole block (click at the start, shift-click at the end) → **Ctrl-C**
-   → paste into the calculator.
+1. Open **SmartPhrase Manager** (search "SmartPhrase Manager", or **Epic → Tools →
+   SmartPhrase Manager**).
+2. **New SmartPhrase**, name it `PREVENT` (so you invoke it with `.prevent`).
+3. Paste one of the blocks above. The `@...@` tokens are recognized as SmartLinks
+   automatically; leave the `***` wildcards as-is.
+4. **Save.**
+5. In a note: type `.prevent`, let the SmartLinks fill, press **F2** through the four
+   Yes/No wildcards, then select the block, copy, and paste into the calculator.
 
-> Tip: keep the note text and just re-run `.prevent` on your next patient; the
-> SmartLinks refresh to that patient automatically.
+> You don't even need the SmartPhrase to try it: paste any Epic labs view or note and the
+> calculator will scrape what it can. The SmartPhrase just makes it one keystroke.
 
 ---
 
-## Auto-pulling labs (optional upgrade)
+## What each value is used for
 
-Lab-result SmartLinks are component-specific and differ between Epic builds, so
-there's no single universal token to hard-code. To make a lab auto-pull:
+| Field | Source in Version A | Notes |
+|-------|---------------------|-------|
+| Age | `@AGE@` | 30–79 (30-yr risk validated to 59) |
+| Sex | `@SEX@` | sex-specific equations |
+| Systolic BP | `@BP@` (systolic taken) | 90–180 mmHg |
+| BMI | `@BMI@` | 18.5–39.9 kg/m² |
+| Total cholesterol | `@BRIEFLABS()@` | mg/dL 130–320 (mmol/L toggle in app) |
+| HDL | `@BRIEFLABS()@` | non-HDL derived as Total − HDL |
+| eGFR | `@BRIEFLABS()@` or computed from creatinine | CKD-EPI 2021; 15–140 |
+| HbA1c *(optional)* | `@BRIEFLABS()@` | % 4.5–15 → HbA1c/full model |
+| UACR *(optional)* | `@BRIEFLABS()@` | mg/g 0.1–25000 → UACR/full model |
+| Diabetes / Smoker / Antihypertensive / Statin | Yes/No wildcards | current smoking only |
+| ZIP *(optional)* | wildcard | → Social Deprivation Index decile → SDI/full model |
 
-1. In the SmartPhrase editor, put your cursor where the value goes (after
-   `Total cholesterol: `).
-2. Click **Insert SmartLink** (or type `@` and start the name).
-3. Search for the result component (e.g., **cholesterol**, **HDL**, **A1C**,
-   **creatinine/eGFR**, **microalbumin/creatinine**) and pick the
-   "most recent result value" SmartLink your org exposes.
-4. Repeat per lab. Ask a UCSF Epic analyst or a co-resident which lab-result
-   SmartLinks are enabled if you can't find them — many orgs name them like
-   `@LATESTLABVALUE(...)@` or expose them as SmartData elements.
-
-If you'd rather not bother, leave the labs as `***` — typing five numbers takes a
-few seconds, and the browser form is right there to correct anything.
-
----
-
-## Faster Yes/No (optional upgrade)
-
-To click instead of type the four Yes/No answers, build a tiny SmartList:
-
-1. **SmartList** editor (or ask an analyst) → new SmartList named e.g. `YESNO`
-   with two choices: `Yes`, `No` (single-select).
-2. In the SmartPhrase, replace each `***` on the Diabetes / Current smoker /
-   On antihypertensive / On statin lines with `{YESNO:your_id}`.
-3. Now those lines become one-click pick-lists.
-
----
-
-## What each value means for PREVENT
-
-| Line | PREVENT input | Notes |
-|------|---------------|-------|
-| Age | age (30–79) | 30-year risk only validated to 59 |
-| Sex | female/male | uses sex-specific equations |
-| Blood pressure / SBP | systolic BP (90–180 mmHg) | calculator takes the systolic number |
-| Total cholesterol | mg/dL (130–320) | toggle to mmol/L in the app if needed |
-| HDL | mg/dL (20–100) | non-HDL is derived as Total − HDL |
-| Diabetes | yes/no | |
-| Current smoker | yes/no | **current** use; former/never = No |
-| BMI | kg/m² (18.5–39.9) | |
-| eGFR | mL/min/1.73m² (15–140) | CKD-EPI 2021 (Epic's eGFR) |
-| On antihypertensive | yes/no | changes the BP term |
-| On statin | yes/no | changes the non-HDL term |
-| HbA1c *(optional)* | % (4.5–15) | enables the HbA1c / full model |
-| UACR *(optional)* | mg/g (0.1–25000) | enables the UACR / full model |
-| ZIP *(optional)* | 5-digit | maps to Social Deprivation Index decile → SDI/full model |
-
-Optional values that are blank or out of range are simply ignored (you get the base
-model). Provide any of HbA1c / UACR / ZIP to also get the corresponding enhanced model.
+Optional values that are blank or out of range are ignored (you get the base model).
+Provide any of HbA1c / UACR / ZIP to also get the corresponding enhanced model.

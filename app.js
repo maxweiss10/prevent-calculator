@@ -36,10 +36,10 @@
     sdi: ["sdi", "sdi decile", "social deprivation index"],
   };
 
-  // Order matters: match more specific labels first so "hdl" doesn't get
-  // grabbed by "cholesterol", "systolic" before "bp", etc.
-  var MATCH_ORDER = ["age", "sex", "hba1c", "hdl_c", "total_c", "sbp", "egfr",
-    "bmi", "uacr", "sdi", "zip", "bp_tx", "statin", "dm", "smoking"];
+  // Labeled pass handles the explicit/non-lab fields. Numeric lab & vital
+  // values (sbp, bmi, total_c, hdl_c, egfr, hba1c, uacr) are handled by
+  // scanClinical(), which also works on unstructured lab dumps.
+  var MATCH_ORDER = ["age", "sex", "zip", "sdi", "bp_tx", "statin", "dm", "smoking"];
 
   function firstNumber(s) {
     // handles "132/80" -> 132, ">90" -> 90, "6.1 %" -> 6.1, "1,234" -> 1234
@@ -114,6 +114,7 @@
         }
       }
     }
+    scanClinical(text, out, found); // scrape labs/vitals from unstructured text
     return { values: out, found: found };
   }
 
@@ -128,6 +129,90 @@
   }
 
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+  // ---- Unstructured / lab-dump scanning ---------------------------------
+  // Scrapes clinical numbers out of free text (@BRIEFLABS()@ output, a pasted
+  // results view, a note). Handles both "Label: value" and compact/vertical
+  // lab formats. Fills only fields not already set.
+  function lineAfter(text, idx) {
+    var after = text.slice(idx);
+    var nl = after.search(/\r?\n/);
+    return nl >= 0 ? after.slice(0, nl) : after;
+  }
+  function firstNumIn(s, allowThousands) {
+    s = s.replace(/\([^)]*\)/g, " "); // drop parentheticals: ref ranges, dates, eAG
+    var re = allowThousands ? /[<>≤≥]?\s*(\d[\d,]*(?:\.\d+)?)/ : /[<>≤≥]?\s*(\d+(?:\.\d+)?)/;
+    var m = s.match(re);
+    return m ? parseFloat(m[1].replace(/,/g, "")) : null;
+  }
+  // Value that follows a lab-name pattern anywhere in the text.
+  function scanField(text, namePat, opts) {
+    opts = opts || {};
+    var re = new RegExp(namePat, "gi"), m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index === re.lastIndex) re.lastIndex++;
+      var pre = text.slice(Math.max(0, m.index - 6), m.index).toLowerCase();
+      if (opts.badWords && opts.badWords.some(function (w) { return pre.indexOf(w) >= 0; })) continue;
+      // ratio guard: reject "X/HDL" (slash immediately before) or "Chol/HDL" (slash immediately after name)
+      if (opts.noSlashBefore && /\/\s*$/.test(text.slice(Math.max(0, m.index - 2), m.index))) continue;
+      var rawAfter = text.slice(m.index + m[0].length);
+      if (opts.noSlashAfter && /^\s*\//.test(rawAfter)) continue;
+      var after = lineAfter(text, m.index + m[0].length);
+      if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
+      var n = firstNumIn(after, opts.thousands);
+      if (n === null) continue;
+      if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
+      return n;
+    }
+    return null;
+  }
+  function scanSbp(text) {
+    var pats = [
+      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*\/\s*\d{2,3}/i, // 148/86
+      /(\d{2,3})\s*\/\s*\d{2,3}\s*mm\s*hg/i,                              // 148/86 mmHg
+      /\b(?:sbp|systolic(?:\s*(?:bp|blood\s*pressure))?)\b[^\d\n]{0,12}(\d{2,3})/i, // SBP 148
+    ];
+    for (var i = 0; i < pats.length; i++) {
+      var m = text.match(pats[i]);
+      if (m) { var v = parseFloat(m[1]); if (v >= 60 && v <= 260) return v; }
+    }
+    return null;
+  }
+  // CKD-EPI 2021 (race-free) creatinine eGFR — matches preventr::calc_egfr.
+  function ckdEpi2021(cr, age, sex, units) {
+    if (!(cr > 0) || !(age >= 18 && age <= 100)) return null;
+    var s = (sex === "female" || sex === "f") ? "f" : "m";
+    if (units && /umol|μmol/i.test(units)) cr = cr / 88.4;
+    var k = s === "f" ? 0.7 : 0.9;
+    var a1 = s === "f" ? -0.241 : -0.302;
+    var d = s === "f" ? 1.012 : 1;
+    var egfr = 142 * Math.pow(Math.min(cr / k, 1), a1) * Math.pow(Math.max(cr / k, 1), -1.2) *
+      Math.pow(0.9938, age) * d;
+    return Math.round(egfr); // preventr rounds eGFR to a whole number
+  }
+
+  function scanClinical(text, out, found) {
+    function tryField(key, namePat, opts) {
+      if (found[key] !== undefined) return;
+      var v = scanField(text, namePat, opts);
+      if (v !== null) { out[key] = v; found[key] = "scanned"; }
+    }
+    if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
+    tryField("bmi", "bmi", { min: 10, max: 80 });
+    tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, commaCut: true, min: 40, max: 500 });
+    tryField("hdl_c", "hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?", { badWords: ["non"], noSlashBefore: true, commaCut: true, min: 5, max: 150 });
+    tryField("hba1c", "(?:hb?a1c|hgba1c|a1c|glyc\\w*\\s*h[ae]moglobin|glycohemoglobin)", { min: 3, max: 20 });
+    tryField("egfr", "\\be?-?gfr\\b", { min: 1, max: 200 });
+    tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?\\s*/\\s*creat(?:inine)?(?:\\s+ratio)?|alb\\s*/\\s*cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
+    // Fallback: eGFR from serum creatinine (only if eGFR wasn't found directly)
+    if (found.egfr === undefined && out.age != null && out.sex) {
+      var cr = scanField(text, "(?:creatinine|creat|\\bcr\\b)(?!\\s*cl)", { badWords: ["album", "alb", "urine"], noSlashBefore: true, min: 0.2, max: 15 });
+      if (cr !== null) {
+        var e = ckdEpi2021(cr, out.age, out.sex);
+        if (e !== null) { out.egfr = e; found.egfr = "computed_from_cr"; }
+      }
+    }
+  }
 
   // ---- Model selection (mirrors preventr::select_model) ------------------
   function usable(v, lo, hi) { return v !== null && v !== undefined && !isNaN(v) && v >= lo && v <= hi; }
@@ -166,7 +251,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();

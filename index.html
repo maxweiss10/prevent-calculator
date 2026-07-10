@@ -111,8 +111,9 @@
     <h1>AHA PREVENT Risk Calculator</h1>
     <button class="link themebtn" id="themeToggle" title="Toggle light/dark">◐ theme</button>
   </header>
-  <p class="sub">Paste a <span class="kbd">.PREVENT</span> Epic SmartPhrase output, verify the values, and get 10- &amp; 30-year
-    Total CVD, ASCVD, and Heart Failure risk. Runs entirely in your browser — no data is sent anywhere.</p>
+  <p class="sub">Paste a <span class="kbd">.PREVENT</span> SmartPhrase output — or any Epic text with the values in it
+    (a labs view, <span class="kbd">@BRIEFLABS()@</span> dump, or note). It scrapes what it can, you verify, and it
+    returns 10- &amp; 30-year Total CVD, ASCVD, and Heart Failure risk. Runs entirely in your browser — no data is sent anywhere.</p>
 
   <div class="grid">
     <!-- LEFT: paste + form -->
@@ -169,9 +170,11 @@
     </div>
     <pre id="spText" style="background:var(--field);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre;margin:0;"></pre>
     <p class="unit" style="margin:8px 0 0;">
-      <b>@AGE@ @SEX@ @BP@ @BMI@</b> are standard Epic SmartLinks (auto-fill). <b>***</b> are wildcards
-      (press <span class="kbd">F2</span> to jump between them). To auto-pull labs too, replace a lab's
-      <b>***</b> with your most-recent-result SmartLink (Insert SmartLink → search the component).
+      <b>@AGE@ @SEX@ @BP@ @BMI@</b> are standard Epic SmartLinks (auto-fill). <b>@BRIEFLABS()@</b> dumps
+      recent labs — the calculator scrapes Total chol, HDL, HbA1c, eGFR (or computes it from creatinine),
+      and UACR out of it automatically. <b>***</b> are wildcards for the four Yes/No calls
+      (press <span class="kbd">F2</span> to jump between them). If a needed lab isn't in your
+      <span class="kbd">@BRIEFLABS()@</span> output, add its result SmartLink or just type it in the form.
     </p>
   </div>
 
@@ -319,6 +322,7 @@
     var text = document.getElementById("paste").value;
     var res = APP.parseText(text);
     state.parsed = res.found;
+    state.computedEgfr = res.found.egfr === "computed_from_cr" ? res.values.egfr : null;
     Object.keys(res.values).forEach(function (k) {
       var el = document.getElementById("f_" + k);
       if (!el) return;
@@ -415,6 +419,8 @@
 
     var msgs = "";
     var probs = out.problems.slice();
+    if (state.computedEgfr != null && Math.abs(v.egfr - state.computedEgfr) < 0.5)
+      probs.push("eGFR was computed from serum creatinine (CKD-EPI 2021), not reported directly — verify.");
     if (age > 59) probs.push("30-year estimates are shown but were only validated for ages 30–59.");
     if (probs.length) {
       msgs = '<div class="panelmsg warn"><b>Notes</b><ul class="msglist"><li>' +
@@ -463,10 +469,9 @@
 
   // ---- Epic SmartPhrase templates ----
   var SP = {
-    A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "Blood pressure: @BP@", "BMI: @BMI@",
-        "eGFR: ***", "Total cholesterol: ***", "HDL: ***", "Diabetes: ***", "Current smoker: ***",
-        "On antihypertensive: ***", "On statin: ***",
-        "HbA1c (optional): ***", "UACR (optional): ***", "ZIP (optional): ***"].join("\n"),
+    A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
+        "Diabetes: ***", "Current smoker: ***", "On antihypertensive: ***", "On statin: ***",
+        "ZIP (optional): ***", "Labs: @BRIEFLABS()@"].join("\n"),
     B: ["PREVENT INPUTS", "Age: ***", "Sex: ***", "SBP: ***", "Total cholesterol: ***", "HDL: ***",
         "Diabetes: ***", "Current smoker: ***", "BMI: ***", "eGFR: ***",
         "On antihypertensive: ***", "On statin: ***",
