@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PREVENT Risk Calculator</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1a1d21; --muted: #5b6570;
+    --line: #e2e6ea; --brand: #0b6b5b; --brand-ink: #ffffff;
+    --accent: #0d5bd1; --field: #ffffff; --chip: #eef1f4;
+    --ok: #1a7f52; --warnbg: #fff4e5; --warnink: #8a5300; --warnline: #f0d9b5;
+    --low: #1a7f52; --borderline: #b8860b; --intermediate: #d97706; --high: #c0392b;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --panel: #171b21; --ink: #e8ebee; --muted: #9aa4ae;
+      --line: #262c34; --brand: #2bb39a; --brand-ink: #06231d;
+      --accent: #6ea8ff; --field: #10141a; --chip: #202730;
+      --ok: #4cc38a; --warnbg: #2a2113; --warnink: #f0c674; --warnline: #4a3a1a;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#f6f7f9;--panel:#fff;--ink:#1a1d21;--muted:#5b6570;--line:#e2e6ea;--brand:#0b6b5b;
+    --brand-ink:#fff;--accent:#0d5bd1;--field:#fff;--chip:#eef1f4;--ok:#1a7f52;
+    --warnbg:#fff4e5;--warnink:#8a5300;--warnline:#f0d9b5;
+    --low:#1a7f52;--borderline:#b8860b;--intermediate:#d97706;--high:#c0392b;
+  }
+  :root[data-theme="dark"] {
+    --bg:#0f1216;--panel:#171b21;--ink:#e8ebee;--muted:#9aa4ae;--line:#262c34;--brand:#2bb39a;
+    --brand-ink:#06231d;--accent:#6ea8ff;--field:#10141a;--chip:#202730;--ok:#4cc38a;
+    --warnbg:#2a2113;--warnink:#f0c674;--warnline:#4a3a1a;
+    --low:#4cc38a;--borderline:#d9b45b;--intermediate:#f0a55a;--high:#e57373;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 18px 60px; }
+  header.top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 21px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 18px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    margin: 0 0 12px; font-weight: 700; }
+  textarea { width: 100%; min-height: 150px; resize: vertical; background: var(--field); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: 13px/1.5 ui-monospace,
+    SFMono-Regular, Menlo, Consolas, monospace; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--chip); color: var(--ink); padding: 8px 14px; }
+  button.primary { background: var(--brand); color: var(--brand-ink); border-color: transparent; }
+  button.link { background: none; border: none; color: var(--accent); padding: 6px; text-decoration: underline; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  @media (max-width: 520px) { .fields { grid-template-columns: 1fr; } }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .field label { font-size: 12px; color: var(--muted); font-weight: 600; display: flex; gap: 6px; align-items: center; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; border: 1px solid var(--line); flex: none; }
+  .dot.on { background: var(--ok); border-color: var(--ok); }
+  .field .in { display: flex; align-items: center; gap: 6px; }
+  input[type=number], input[type=text], select { width: 100%; background: var(--field); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+  input.bad, select.bad { border-color: var(--high); }
+  .unit { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; background: var(--field); padding: 7px 10px; font-size: 13px; color: var(--muted); }
+  .seg button.sel { background: var(--brand); color: var(--brand-ink); }
+  details.optional { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+  details.optional summary { cursor: pointer; font-size: 12.5px; color: var(--accent); font-weight: 600; }
+  .results { margin-top: 16px; }
+  .modelbadge { display: inline-flex; gap: 8px; align-items: center; background: var(--chip); border: 1px solid var(--line);
+    border-radius: 999px; padding: 4px 12px; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+  .horizons { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .horizons { grid-template-columns: 1fr; } }
+  .hz { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .hz h3 { margin: 0 0 2px; font-size: 15px; }
+  .hz .note { color: var(--muted); font-size: 11.5px; margin-bottom: 12px; }
+  .prim { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .metric { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; text-align: center; }
+  .metric .v { font-size: 24px; font-weight: 750; letter-spacing: -0.02em; }
+  .metric .l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-top: 2px; }
+  .metric.compare .v2 { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .sec { display: flex; gap: 16px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .sec b { color: var(--ink); font-weight: 700; }
+  .cat { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #fff; }
+  .cat.low { background: var(--low); } .cat.borderline { background: var(--borderline); }
+  .cat.intermediate { background: var(--intermediate); } .cat.high { background: var(--high); }
+  .panelmsg { border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-top: 12px; }
+  .panelmsg.warn { background: var(--warnbg); color: var(--warnink); border: 1px solid var(--warnline); }
+  .panelmsg.info { background: var(--chip); color: var(--muted); border: 1px solid var(--line); }
+  ul.msglist { margin: 6px 0 0; padding-left: 18px; } ul.msglist li { margin: 2px 0; }
+  footer { margin-top: 26px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  footer a { color: var(--accent); }
+  .kbd { font: 12px ui-monospace, Menlo, monospace; background: var(--chip); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px; }
+  .themebtn { margin-left: auto; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>AHA PREVENT Risk Calculator</h1>
+    <button class="link themebtn" id="themeToggle" title="Toggle light/dark">◐ theme</button>
+  </header>
+  <p class="sub">Paste a <span class="kbd">.PREVENT</span> Epic SmartPhrase output, verify the values, and get 10- &amp; 30-year
+    Total CVD, ASCVD, and Heart Failure risk. Runs entirely in your browser — no data is sent anywhere.</p>
+
+  <div class="grid">
+    <!-- LEFT: paste + form -->
+    <div>
+      <div class="card">
+        <h2>1 · Paste from Epic</h2>
+        <textarea id="paste" placeholder="Paste the output of your .PREVENT dot phrase here…"></textarea>
+        <div class="row">
+          <button class="primary" id="parseBtn">Parse pasted values</button>
+          <button class="link" id="exampleBtn">Load example</button>
+          <button class="link" id="clearBtn">Clear</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2>2 · Verify inputs</h2>
+        <div class="row" style="margin-top:0;margin-bottom:8px;">
+          <span class="unit">Cholesterol units:</span>
+          <span class="seg" id="unitSeg">
+            <button data-u="mg/dL" class="sel">mg/dL</button>
+            <button data-u="mmol/L">mmol/L</button>
+          </span>
+        </div>
+        <div class="fields" id="reqFields"></div>
+        <details class="optional" id="optWrap">
+          <summary>Optional predictors → enhanced models (HbA1c, UACR, ZIP/SDI)</summary>
+          <div class="fields" id="optFields" style="margin-top:10px;"></div>
+          <p class="unit" id="sdiHint" style="margin:8px 0 0;"></p>
+        </details>
+      </div>
+    </div>
+
+    <!-- RIGHT: results -->
+    <div>
+      <div class="card">
+        <h2>3 · Estimated risk</h2>
+        <div id="results" class="results"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h2>Epic <span class="kbd">.PREVENT</span> SmartPhrase</h2>
+    <p class="sub" style="margin:0 0 10px;">Build this once in <b>SmartPhrase Manager</b> (name it
+      <b>PREVENT</b>). Then type <span class="kbd">.prevent</span> in any note, fill it, select all, copy,
+      and paste above. Keep the <b>labels</b> unchanged; change the values freely.</p>
+    <div class="row" style="margin:0 0 8px;">
+      <span class="seg" id="spSeg">
+        <button data-v="A" class="sel">Auto-pull (recommended)</button>
+        <button data-v="B">All-manual</button>
+      </span>
+      <button class="link" id="copySp">Copy template</button>
+      <span class="unit" id="copyMsg"></span>
+    </div>
+    <pre id="spText" style="background:var(--field);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre;margin:0;"></pre>
+    <p class="unit" style="margin:8px 0 0;">
+      <b>@AGE@ @SEX@ @BP@ @BMI@</b> are standard Epic SmartLinks (auto-fill). <b>***</b> are wildcards
+      (press <span class="kbd">F2</span> to jump between them). To auto-pull labs too, replace a lab's
+      <b>***</b> with your most-recent-result SmartLink (Insert SmartLink → search the component).
+    </p>
+  </div>
+
+  <footer>
+    <p><b>Model:</b> AHA PREVENT equations (base + optional CKM/SDI). Coefficients from the
+      Supplemental Appendix of Khan SS, Matsushita K, Sang Y, et al.
+      “Development and Validation of the American Heart Association’s PREVENT Equations.”
+      <i>Circulation.</i> 2024;149(6):430–449. This tool’s engine was ported from and verified
+      bit-for-bit against the CRAN <a href="https://github.com/martingmayer/preventr" target="_blank" rel="noopener">preventr</a>
+      package (v0.11.0) across 1,000 test cases (all 5 outcomes, both sexes, both horizons).</p>
+    <p><b>Scope:</b> 10-year risk is validated for ages 30–79; 30-year risk for ages 30–59.
+      ASCVD risk categories (low/borderline/intermediate/high) follow the 2018/2019 ACC/AHA thresholds,
+      which were derived with the Pooled Cohort Equations — apply clinical judgment.</p>
+    <p><b>Disclaimer:</b> For educational and clinician-support use only. Not a substitute for clinical
+      judgment or a validated institutional calculator. Verify every value before acting. No patient data
+      leaves this page.</p>
+  </footer>
+</div>
+
+<script src="coeffs.js"></script>
+<script src="prevent.js"></script>
+<script src="app.js"></script>
+<script>
+(function () {
+  "use strict";
+  var APP = window.PREVENT_APP, ENGINE = window.PREVENT, C = window.PREVENT_COEFFS;
+  var state = { chol_unit: "mg/dL", values: {}, parsed: {} };
+  var sdiMap = null, sdiLoaded = false;
+
+  // ---- field config ----
+  var REQ = [
+    { key: "age",    label: "Age",              unit: "years",           kind: "num", range: [30, 79] },
+    { key: "sex",    label: "Sex",              kind: "sex" },
+    { key: "sbp",    label: "Systolic BP",      unit: "mmHg",            kind: "num", range: [90, 180] },
+    { key: "total_c",label: "Total cholesterol",unit: "chol",            kind: "num" },
+    { key: "hdl_c",  label: "HDL cholesterol",  unit: "chol",            kind: "num" },
+    { key: "bmi",    label: "BMI",              unit: "kg/m²",      kind: "num", range: [18.5, 39.9] },
+    { key: "egfr",   label: "eGFR",             unit: "mL/min/1.73m²", kind: "num", range: [15, 140] },
+    { key: "dm",     label: "Diabetes",         kind: "bool" },
+    { key: "smoking",label: "Current smoker",   kind: "bool" },
+    { key: "bp_tx",  label: "On antihypertensive", kind: "bool" },
+    { key: "statin", label: "On statin",        kind: "bool" },
+  ];
+  var OPT = [
+    { key: "hba1c", label: "HbA1c",        unit: "%",     kind: "num", range: [4.5, 15] },
+    { key: "uacr",  label: "UACR",         unit: "mg/g",  kind: "num", range: [0.1, 25000] },
+    { key: "zip",   label: "ZIP code",     unit: "→ SDI", kind: "zip" },
+    { key: "sdi",   label: "SDI decile",   unit: "1–10 (if ZIP unknown)", kind: "num", range: [1, 10] },
+  ];
+
+  function cholUnitLabel() { return state.chol_unit; }
+  function cholRange(key) {
+    var mg = state.chol_unit === "mg/dL";
+    if (key === "total_c") return mg ? APP.RANGES.total_c_mgdl : APP.RANGES.total_c_mmol;
+    if (key === "hdl_c")   return mg ? APP.RANGES.hdl_c_mgdl   : APP.RANGES.hdl_c_mmol;
+    return null;
+  }
+
+  // ---- render form ----
+  function fieldHTML(f) {
+    var unit = f.unit === "chol" ? cholUnitLabel() : (f.unit || "");
+    var idp = "f_" + f.key;
+    var input;
+    if (f.kind === "sex") {
+      input = '<select id="' + idp + '" data-key="' + f.key + '">' +
+        '<option value="">—</option><option value="female">Female</option><option value="male">Male</option></select>';
+    } else if (f.kind === "bool") {
+      input = '<select id="' + idp + '" data-key="' + f.key + '">' +
+        '<option value="">—</option><option value="true">Yes</option><option value="false">No</option></select>';
+    } else if (f.kind === "zip") {
+      input = '<input type="text" inputmode="numeric" maxlength="5" id="' + idp + '" data-key="' + f.key + '" placeholder="5 digits">';
+    } else {
+      input = '<input type="number" step="any" id="' + idp + '" data-key="' + f.key + '" placeholder="—">';
+    }
+    return '<div class="field"><label><span class="dot" id="dot_' + f.key + '"></span>' + f.label + '</label>' +
+      '<div class="in">' + input + (unit ? '<span class="unit" id="u_' + f.key + '">' + unit + '</span>' : '') + '</div></div>';
+  }
+
+  function renderForm() {
+    document.getElementById("reqFields").innerHTML = REQ.map(fieldHTML).join("");
+    document.getElementById("optFields").innerHTML = OPT.map(fieldHTML).join("");
+    REQ.concat(OPT).forEach(function (f) {
+      var el = document.getElementById("f_" + f.key);
+      el.addEventListener("input", onFieldInput);
+      el.addEventListener("change", onFieldInput);
+    });
+  }
+
+  function setUnitLabels() {
+    ["total_c", "hdl_c"].forEach(function (k) {
+      var u = document.getElementById("u_" + k); if (u) u.textContent = cholUnitLabel();
+    });
+  }
+
+  // ---- read/write values ----
+  function readField(f) {
+    var el = document.getElementById("f_" + f.key);
+    if (!el) return null;
+    var raw = el.value;
+    if (f.kind === "sex") return raw || null;
+    if (f.kind === "bool") return raw === "" ? null : (raw === "true");
+    if (f.kind === "zip") { var m = String(raw).match(/\d{5}/); return m ? m[0] : (raw ? raw : null); }
+    if (raw === "" || raw === null) return null;
+    var n = parseFloat(raw); return isNaN(n) ? null : n;
+  }
+
+  function collect() {
+    var v = { chol_unit: state.chol_unit };
+    REQ.concat(OPT).forEach(function (f) {
+      var val = readField(f);
+      if (val !== null && val !== undefined && val !== "") v[f.key] = val;
+    });
+    // ZIP -> SDI decile (ZIP wins over manual decile when resolvable)
+    if (v.zip && sdiMap) {
+      var d = sdiMap[String(v.zip).padStart(5, "0")];
+      if (d !== undefined) v.sdi = d;
+      else if (v.sdi === undefined) v.sdi = NaN; // valid-looking zip but no data -> missing
+    }
+    return v;
+  }
+
+  function markValidity() {
+    REQ.concat(OPT).forEach(function (f) {
+      var el = document.getElementById("f_" + f.key);
+      if (!el) return;
+      var val = readField(f);
+      var bad = false;
+      if (val !== null && f.kind === "num") {
+        var r = f.unit === "chol" ? cholRange(f.key) : f.range;
+        if (r && (val < r[0] || val > r[1])) bad = true;
+      }
+      el.classList.toggle("bad", bad);
+    });
+  }
+
+  function setDots(found) {
+    REQ.concat(OPT).forEach(function (f) {
+      var d = document.getElementById("dot_" + f.key);
+      if (d) d.classList.toggle("on", !!found[f.key]);
+    });
+  }
+
+  // ---- parse button ----
+  function doParse() {
+    var text = document.getElementById("paste").value;
+    var res = APP.parseText(text);
+    state.parsed = res.found;
+    Object.keys(res.values).forEach(function (k) {
+      var el = document.getElementById("f_" + k);
+      if (!el) return;
+      var val = res.values[k];
+      if (typeof val === "boolean") el.value = String(val);
+      else el.value = val;
+    });
+    setDots(res.found);
+    onFieldInput();
+  }
+
+  function onFieldInput() {
+    setUnitLabels(); markValidity();
+    state.values = collect();
+    updateSdiHint();
+    compute();
+  }
+
+  function updateSdiHint() {
+    var hint = document.getElementById("sdiHint");
+    var zip = state.values.zip;
+    if (!sdiLoaded) { hint.textContent = "Loading SDI ZIP table…"; return; }
+    if (!sdiMap) { hint.textContent = "SDI ZIP lookup unavailable offline — enter SDI decile manually if known."; return; }
+    if (zip) {
+      var d = sdiMap[String(zip).padStart(5, "0")];
+      hint.textContent = d !== undefined
+        ? "ZIP " + zip + " → SDI decile " + d + " of 10."
+        : "ZIP " + zip + " not found in SDI table (treated as missing SDI).";
+    } else { hint.textContent = ""; }
+  }
+
+  // ---- compute + render ----
+  var PRIM = [["total_cvd", "Total CVD"], ["ascvd", "ASCVD"], ["heart_failure", "Heart Failure"]];
+  function pct(x) { return (x * 100).toFixed(1) + "%"; }
+  function ascvdCat(r) {
+    var p = r * 100;
+    if (p < 5) return ["low", "Low"];
+    if (p < 7.5) return ["borderline", "Borderline"];
+    if (p < 20) return ["intermediate", "Intermediate"];
+    return ["high", "High"];
+  }
+
+  function missingRequired(v) {
+    var miss = [];
+    REQ.forEach(function (f) {
+      var val = v[f.key];
+      if (val === undefined || val === null || (typeof val === "number" && isNaN(val))) miss.push(f.label);
+    });
+    return miss;
+  }
+
+  function horizonHTML(title, note, primary, secondary, showCat) {
+    var cells = PRIM.map(function (p) {
+      var r = primary[p[0]];
+      var comp = secondary ? '<div class="v2">base ' + pct(secondary[p[0]]) + '</div>' : '';
+      return '<div class="metric compare"><div class="v">' + pct(r) + '</div>' + comp +
+        '<div class="l">' + p[1] + '</div></div>';
+    }).join("");
+    var catHTML = "";
+    if (showCat) {
+      var c = ascvdCat(primary.ascvd);
+      catHTML = ' <span class="cat ' + c[0] + '">' + c[1] + ' ASCVD risk</span>';
+    }
+    return '<div class="hz"><h3>' + title + catHTML + '</h3><div class="note">' + note + '</div>' +
+      '<div class="prim">' + cells + '</div>' +
+      '<div class="sec"><span>CHD <b>' + pct(primary.chd) + '</b></span>' +
+      '<span>Stroke <b>' + pct(primary.stroke) + '</b></span></div></div>';
+  }
+
+  function compute() {
+    var box = document.getElementById("results");
+    var v = state.values;
+    var miss = missingRequired(v);
+    if (miss.length) {
+      box.innerHTML = '<div class="panelmsg info">Enter or paste the remaining required value' +
+        (miss.length > 1 ? "s" : "") + ': <b>' + miss.join(", ") + '</b>.</div>';
+      return;
+    }
+    var out = APP.computeAll(v);
+    var enh = out.enhanced;
+    var useEnhanced = !!enh;
+    var primary = useEnhanced ? enh : out.base;
+    var baseComp = useEnhanced ? out.base : null;
+
+    var modelName = { base: "Base model", hba1c: "Base + HbA1c", uacr: "Base + UACR",
+      sdi: "Base + SDI", full: "Full model (HbA1c + UACR + SDI)" }[out.model];
+    var badge = '<div class="modelbadge">◆ ' + modelName +
+      (useEnhanced ? ' &nbsp;·&nbsp; base shown for comparison' : '') + '</div>';
+
+    var age = v.age;
+    var h10 = horizonHTML("10-year risk", "Ages 30–79", primary.r10, baseComp ? baseComp.r10 : null, true);
+    var note30 = age <= 59 ? "Ages 30–59" : "⚠ Not recommended above age 59";
+    var h30 = horizonHTML("30-year risk", note30, primary.r30, baseComp ? baseComp.r30 : null, false);
+
+    var msgs = "";
+    var probs = out.problems.slice();
+    if (age > 59) probs.push("30-year estimates are shown but were only validated for ages 30–59.");
+    if (probs.length) {
+      msgs = '<div class="panelmsg warn"><b>Notes</b><ul class="msglist"><li>' +
+        probs.join("</li><li>") + '</li></ul></div>';
+    }
+
+    box.innerHTML = badge + '<div class="horizons">' + h10 + h30 + '</div>' + msgs;
+  }
+
+  // ---- unit toggle ----
+  document.getElementById("unitSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-u]"); if (!b) return;
+    state.chol_unit = b.getAttribute("data-u");
+    [].forEach.call(this.querySelectorAll("button"), function (x) { x.classList.toggle("sel", x === b); });
+    onFieldInput();
+  });
+
+  // ---- buttons ----
+  document.getElementById("parseBtn").addEventListener("click", doParse);
+  document.getElementById("paste").addEventListener("paste", function () { setTimeout(doParse, 0); });
+  document.getElementById("clearBtn").addEventListener("click", function () {
+    document.getElementById("paste").value = "";
+    REQ.concat(OPT).forEach(function (f) { document.getElementById("f_" + f.key).value = ""; });
+    setDots({}); onFieldInput();
+  });
+  var EXAMPLE = ["PREVENT INPUTS", "Age: 58", "Sex: Female", "SBP: 140", "Total cholesterol: 213",
+    "HDL: 46", "Diabetes: No", "Current smoker: Yes", "BMI: 29.3", "eGFR: 78",
+    "On antihypertensive: Yes", "On statin: No",
+    "HbA1c (optional): ", "UACR (optional): ", "ZIP (optional): "].join("\n");
+  document.getElementById("exampleBtn").addEventListener("click", function () {
+    document.getElementById("paste").value = EXAMPLE; doParse();
+  });
+
+  // ---- theme toggle ----
+  document.getElementById("themeToggle").addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme");
+    var next = cur === "dark" ? "light" : (cur === "light" ? "dark" :
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark"));
+    document.documentElement.setAttribute("data-theme", next);
+  });
+
+  // ---- load SDI map (same-origin; optional) ----
+  fetch("sdi_deciles.json").then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { sdiMap = j; sdiLoaded = true; updateSdiHint(); if (state.values.zip) onFieldInput(); })
+    .catch(function () { sdiLoaded = true; updateSdiHint(); });
+
+  // ---- Epic SmartPhrase templates ----
+  var SP = {
+    A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "Blood pressure: @BP@", "BMI: @BMI@",
+        "eGFR: ***", "Total cholesterol: ***", "HDL: ***", "Diabetes: ***", "Current smoker: ***",
+        "On antihypertensive: ***", "On statin: ***",
+        "HbA1c (optional): ***", "UACR (optional): ***", "ZIP (optional): ***"].join("\n"),
+    B: ["PREVENT INPUTS", "Age: ***", "Sex: ***", "SBP: ***", "Total cholesterol: ***", "HDL: ***",
+        "Diabetes: ***", "Current smoker: ***", "BMI: ***", "eGFR: ***",
+        "On antihypertensive: ***", "On statin: ***",
+        "HbA1c (optional): ***", "UACR (optional): ***", "ZIP (optional): ***"].join("\n"),
+  };
+  var spVer = "A";
+  function renderSp() { document.getElementById("spText").textContent = SP[spVer]; }
+  document.getElementById("spSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-v]"); if (!b) return;
+    spVer = b.getAttribute("data-v");
+    [].forEach.call(this.querySelectorAll("button"), function (x) { x.classList.toggle("sel", x === b); });
+    renderSp();
+  });
+  document.getElementById("copySp").addEventListener("click", function () {
+    var msg = document.getElementById("copyMsg");
+    var done = function () { msg.textContent = "copied ✓"; setTimeout(function () { msg.textContent = ""; }, 1800); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(SP[spVer]).then(done, fallback);
+    else fallback();
+    function fallback() {
+      var t = document.createElement("textarea"); t.value = SP[spVer]; document.body.appendChild(t);
+      t.select(); try { document.execCommand("copy"); } catch (e) {} document.body.removeChild(t); done();
+    }
+  });
+  renderSp();
+
+  renderForm();
+  onFieldInput();
+})();
+</script>
+</body>
+</html>
