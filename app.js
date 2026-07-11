@@ -40,6 +40,10 @@
   // values (sbp, bmi, total_c, hdl_c, egfr, hba1c, uacr) are handled by
   // scanClinical(), which also works on unstructured lab dumps.
   var MATCH_ORDER = ["age", "sex", "zip", "sdi", "bp_tx", "statin", "dm", "smoking"];
+  // Yes/No fields: only accept an EXPLICIT "Label: value" line (colon/equals).
+  // A bare keyword in prose (e.g. "type 2 diabetes mellitus" in a problem list)
+  // must fall through to the guarded inference, not be read as a Yes/No answer.
+  var BOOL_FIELDS = { dm: 1, smoking: 1, bp_tx: 1, statin: 1 };
 
   function firstNumber(s) {
     // handles "132/80" -> 132, ">90" -> 90, "6.1 %" -> 6.1, "1,234" -> 1234
@@ -106,6 +110,9 @@
           var m = re.exec(line);
           if (!m) continue;
           var after = line.slice(m.index + m[0].length);
+          // Yes/No fields require an explicit ":"/"=" right after the label,
+          // so bare mentions in prose/problem lists don't become answers.
+          if (BOOL_FIELDS[field] && !/^\s*[:=]/.test(after)) break;
           var rest = valueRegion(after);
           if (BLANK_RE.test(rest)) { break; } // present but blank/wildcard -> leave unset
           var val = interpret(field, rest);
