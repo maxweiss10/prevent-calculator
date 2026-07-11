@@ -116,16 +116,16 @@
     <h1>AHA PREVENT Risk Calculator</h1>
     <button class="link themebtn" id="themeToggle" title="Toggle light/dark">◐ theme</button>
   </header>
-  <p class="sub">Paste a <span class="kbd">.PREVENT</span> SmartPhrase output — or any Epic text with the values in it
-    (a labs view, <span class="kbd">@BRIEFLABS()@</span> dump, or note). It scrapes what it can, you verify, and it
-    returns 10- &amp; 30-year Total CVD, ASCVD, and Heart Failure risk. Runs entirely in your browser — no data is sent anywhere.</p>
+  <p class="sub">Paste your Epic PREVENT dot-phrase output — or any Epic text with the values in it (a labs view or
+    note). It scrapes what it can, you verify, and it returns 10- &amp; 30-year Total CVD, ASCVD, and Heart Failure
+    risk. Runs entirely in your browser — no data is sent anywhere.</p>
 
   <div class="grid">
     <!-- LEFT: paste + form -->
     <div>
       <div class="card">
         <h2>1 · Paste from Epic</h2>
-        <textarea id="paste" placeholder="Paste the output of your .PREVENT dot phrase here…"></textarea>
+        <textarea id="paste" placeholder="Paste the output of your PREVENT dot phrase here…"></textarea>
         <div class="row">
           <button class="primary" id="parseBtn">Parse pasted values</button>
           <button class="link" id="exampleBtn">Load example</button>
@@ -165,9 +165,10 @@
   </div>
 
   <div class="card" style="margin-top:16px;">
-    <h2>Epic <span class="kbd">.PREVENT</span> SmartPhrase</h2>
-    <p class="sub" style="margin:0 0 10px;">Build this once in <b>SmartPhrase Manager</b> (name it
-      <b>PREVENT</b>). In a note, type <span class="kbd">.prevent</span>, then select all → copy → paste above.</p>
+    <h2>Epic SmartPhrase</h2>
+    <p class="sub" style="margin:0 0 10px;">Build this once in <b>SmartPhrase Manager</b> and name it whatever you
+      like — or just <b>borrow <span class="kbd">.MWPREVENT</span> from Max Weiss</b> instead of building your own.
+      In a note, type your dot phrase, then select all → copy → paste above.</p>
     <div class="row" style="margin:0 0 8px;">
       <button class="link" id="copySp">Copy template</button>
       <span class="unit" id="copyMsg"></span>
@@ -176,15 +177,14 @@
     <p class="unit" style="margin:8px 0 0; white-space:normal;">
       These are UCSF SmartLink tokens — swap in your build's if they differ. The calculator reads whatever they
       print: the systolic from the <span class="kbd">@LASTBP(3)@</span> list, chol/HDL and eGFR from the result
-      tables, <b>diabetes</b> from the problem list, and <b>antihypertensive use</b> &amp; <b>smoking</b> from
-      meds / social history — each shown with an <b style="color:#d98324">amber “verify” dot</b>.
-      <b>Statin</b> isn't in this phrase (<span class="kbd">@HTNMEDS@</span> is hypertension-only), so set it in
-      the form — or add a <span class="kbd">Statin: @STATINS@</span> line to auto-detect it. Every field above is editable.
+      tables, <b>diabetes</b> from the problem list, and <b>statin, antihypertensive use &amp; smoking</b> from the
+      med and social-history lists — each shown with an <b style="color:#d98324">amber “verify” dot</b>. Every
+      field above is editable.
     </p>
   </div>
 
   <footer>
-    <p><b>How it works:</b> Paste an Epic <span class="kbd">.PREVENT</span> SmartPhrase, a labs/results
+    <p><b>How it works:</b> Paste your Epic PREVENT dot phrase, a labs/results
       view, or a note — everything is parsed <b>in your browser</b> (no data leaves the page) and pre-fills
       the editable form above. It reads the values with deterministic pattern rules (not AI), so it:</p>
     <ul style="margin:4px 0 8px; padding-left:18px;">
@@ -518,7 +518,7 @@
   // ---- Epic SmartPhrase template ----
   var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",
     "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "Problems: @PROB@",
-    "Meds: @HTNMEDS@", "Social Hx: @TOBHX@"].join("\n");
+    "HTN Meds: @HTNMEDS@", "Statin: @STATINS@", "Social Hx: @TOBHX@"].join("\n");
   document.getElementById("spText").textContent = SP;
   document.getElementById("copySp").addEventListener("click", function () {
     var msg = document.getElementById("copyMsg");

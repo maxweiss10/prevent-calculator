@@ -25,9 +25,9 @@ get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD an
 
 ## Workflow
 
-1. Build the `.PREVENT` SmartPhrase in Epic once — see
-   [`epic_smartphrase.md`](epic_smartphrase.md).
-2. In a note, type `.prevent`, fill it, select-all, copy.
+1. Build the PREVENT dot phrase in Epic once — name it anything, or borrow `.MWPREVENT` from
+   Max Weiss. See [`epic_smartphrase.md`](epic_smartphrase.md).
+2. In a note, type your dot phrase, then select-all, copy.
 3. Paste into the app, glance at the parsed values, read the risks.
 
 ## Accuracy & verification
