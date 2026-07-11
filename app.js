@@ -317,6 +317,16 @@
     return null;
   }
 
+  // Is a real problem list present in the paste? (So absence of diabetes on it is
+  // meaningful.) Requires an actual problem-list/PMH header or "Problems:" with
+  // real content — an unresolved "Problems: @PROB@" template line does NOT count.
+  function hasProblemList(text) {
+    if (/\bproblem\s*list\b/i.test(text)) return true;
+    if (/\bpast\s+medical\s+history\b|\bpmh\b/i.test(text)) return true;
+    var m = text.match(/(?:^|\n)\s*(?:problems?|active\s+problems?)\s*:\s*(.+)/i);
+    return !!(m && !/^@\w+@?\s*$/.test(m[1].trim()));
+  }
+
   function inferFlags(text, out, found) {
     var inferred = {};
     if (found.statin === undefined) {
@@ -327,7 +337,13 @@
       if (NO_HTN_MEDS.test(text)) { out.bp_tx = false; found.bp_tx = "inferred"; inferred.bp_tx = { value: false, evidence: "no antihypertensive meds listed" }; }
       else { var h = detectDrug(text, ANTIHTN_RE); if (h) { out.bp_tx = true; found.bp_tx = "inferred"; inferred.bp_tx = { value: true, evidence: h }; } }
     }
-    if (found.dm === undefined) { var d = detectDiabetes(text); if (d) { out.dm = true; found.dm = "inferred"; inferred.dm = { value: true, evidence: d }; } }
+    if (found.dm === undefined) {
+      var d = detectDiabetes(text);
+      if (d) { out.dm = true; found.dm = "inferred"; inferred.dm = { value: true, evidence: d }; }
+      // No diabetes found, but a real problem list is present -> assume No, flag to verify.
+      // (If there's no problem list to rule it out, leave dm unset for the user.)
+      else if (hasProblemList(text)) { out.dm = false; found.dm = "inferred"; inferred.dm = { value: false, evidence: "not on problem list" }; }
+    }
     if (found.smoking === undefined) { var sm = detectSmoking(text); if (sm) { out.smoking = sm.value; found.smoking = "inferred"; inferred.smoking = sm; } }
     return inferred;
   }

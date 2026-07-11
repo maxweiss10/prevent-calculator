@@ -201,9 +201,10 @@
         comma lists, and prose — taking the systolic of the most recent BP and ignoring dates/reference ranges;</li>
       <li>computes <b>eGFR</b> from serum creatinine (CKD-EPI 2021) when only creatinine is shown;</li>
       <li>detects <b>diabetes, statin, antihypertensive, and smoking</b> from problem-list / medication /
-        social-history text — <b>positive evidence only</b> (a “No current … medications” line ⇒ No; a
-        listed drug ⇒ Yes), with guards for pre-diabetes, family history, allergies, and discontinued meds.
-        It never assumes “No” from silence;</li>
+        social-history text: a listed drug or diagnosis ⇒ <b>Yes</b>; when the source is present but the item
+        isn’t in it (no diabetes on the problem list, “No current … medications”) ⇒ <b>No, flagged to verify</b>.
+        Guards exclude pre-diabetes, family history, allergies, and discontinued meds. If there’s no source to
+        rule an item out, it’s left blank for you to enter;</li>
       <li>auto-selects the model (base, or +HbA1c / +UACR / +SDI / full) from whichever optional values are present.</li>
     </ul>
     <p>Values read from the paste show a <b style="color:var(--ok)">green</b> dot; auto-detected ones show an
@@ -228,9 +229,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=5"></script>
-<script src="prevent.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="coeffs.js?v=6"></script>
+<script src="prevent.js?v=6"></script>
+<script src="app.js?v=6"></script>
 <script>
 (function () {
   "use strict";
@@ -469,11 +470,11 @@
       Object.keys(state.inferred).forEach(function (k) {
         var inf = state.inferred[k];
         if (v[k] === inf.value) {
-          var desc = k === "smoking" ? ((inf.value ? "current — " : "not current — ") + inf.evidence) : inf.evidence;
-          items.push(LBL[k] + " (" + desc + ")");
+          var yn = k === "smoking" ? (inf.value ? "current smoker" : "not a current smoker") : (inf.value ? "Yes" : "No");
+          items.push(LBL[k] + " — " + yn + " (" + inf.evidence + ")");
         }
       });
-      if (items.length) probs.unshift("Auto-detected from meds / problems / social history — verify: " + items.join("; ") + ".");
+      if (items.length) probs.unshift("Auto-detected — please verify each: " + items.join("; ") + ".");
     }
     if (state.computedEgfr != null && Math.abs(v.egfr - state.computedEgfr) < 0.5)
       probs.push("eGFR was computed from serum creatinine (CKD-EPI 2021), not reported directly — verify.");
