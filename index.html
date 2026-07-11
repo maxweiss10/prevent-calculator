@@ -167,28 +167,19 @@
   <div class="card" style="margin-top:16px;">
     <h2>Epic <span class="kbd">.PREVENT</span> SmartPhrase</h2>
     <p class="sub" style="margin:0 0 10px;">Build this once in <b>SmartPhrase Manager</b> (name it
-      <b>PREVENT</b>). Then type <span class="kbd">.prevent</span> in any note, fill it, select all, copy,
-      and paste above. Keep the <b>labels</b> unchanged; change the values freely.</p>
+      <b>PREVENT</b>). In a note, type <span class="kbd">.prevent</span>, then select all → copy → paste above.</p>
     <div class="row" style="margin:0 0 8px;">
-      <span class="seg" id="spSeg">
-        <button data-v="C" class="sel">Full auto</button>
-        <button data-v="A">Labs only</button>
-        <button data-v="B">Manual</button>
-      </span>
       <button class="link" id="copySp">Copy template</button>
       <span class="unit" id="copyMsg"></span>
     </div>
     <pre id="spText" style="background:var(--field);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre;margin:0;"></pre>
-    <p class="unit" style="margin:8px 0 0;">
-      <b>Full auto</b> pulls everything — labs, problems, meds, and social history — so the calculator can also
-      detect <b>diabetes, statin, antihypertensive, and smoking</b> with no typing. SmartLink tokens vary by
-      Epic build; the template shows one working UCSF set (<span class="kbd">@LASTBP(3)@</span>,
-      <span class="kbd">@BRIEFLAB(CHOL,HDL)@</span>, <span class="kbd">@NEPHEGFR@</span>,
-      <span class="kbd">@HTNMEDS@</span>, <span class="kbd">@STATINS@</span>, <span class="kbd">@TOBHX@</span>) —
-      swap in your own if they differ. Whatever they print, the parser reads it: a "No current … medications"
-      line ⇒ that flag is No; a listed drug ⇒ Yes. Auto-detected values show an <b style="color:#d98324">amber dot</b>
-      and a "verify" note. <b>Labs only</b> keeps the four Yes/No as <b>***</b> wildcards (press
-      <span class="kbd">F2</span> to jump). Anything blank falls through to the editable form.
+    <p class="unit" style="margin:8px 0 0; white-space:normal;">
+      These are UCSF SmartLink tokens — swap in your build's if they differ. The calculator reads whatever they
+      print: the systolic from the <span class="kbd">@LASTBP(3)@</span> list, chol/HDL and eGFR from the result
+      tables, <b>diabetes</b> from the problem list, and <b>antihypertensive use</b> &amp; <b>smoking</b> from
+      meds / social history — each shown with an <b style="color:#d98324">amber “verify” dot</b>.
+      <b>Statin</b> isn't in this phrase (<span class="kbd">@HTNMEDS@</span> is hypertension-only), so set it in
+      the form — or add a <span class="kbd">Statin: @STATINS@</span> line to auto-detect it. Every field above is editable.
     </p>
   </div>
 
@@ -524,39 +515,21 @@
     .then(function (j) { sdiMap = j; sdiLoaded = true; updateSdiHint(); if (state.values.zip) onFieldInput(); })
     .catch(function () { sdiLoaded = true; updateSdiHint(); });
 
-  // ---- Epic SmartPhrase templates ----
-  var SP = {
-    C: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",
-        "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "City/State/ZIP: @CTYSTZIP@",
-        "Problems: @PROB@", "HTN Meds: @HTNMEDS@", "Statin: @STATINS@",
-        "Social Hx: @TOBHX@"].join("\n"),
-    A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
-        "Diabetes: ***", "Current smoker: ***", "On antihypertensive: ***", "On statin: ***",
-        "City/State/ZIP: @CTYSTZIP@", "Labs: @BRIEFLABS()@"].join("\n"),
-    B: ["PREVENT INPUTS", "Age: ***", "Sex: ***", "SBP: ***", "Total cholesterol: ***", "HDL: ***",
-        "Diabetes: ***", "Current smoker: ***", "BMI: ***", "eGFR: ***",
-        "On antihypertensive: ***", "On statin: ***",
-        "HbA1c (optional): ***", "UACR (optional): ***", "ZIP (optional): ***"].join("\n"),
-  };
-  var spVer = "C";
-  function renderSp() { document.getElementById("spText").textContent = SP[spVer]; }
-  document.getElementById("spSeg").addEventListener("click", function (e) {
-    var b = e.target.closest("button[data-v]"); if (!b) return;
-    spVer = b.getAttribute("data-v");
-    [].forEach.call(this.querySelectorAll("button"), function (x) { x.classList.toggle("sel", x === b); });
-    renderSp();
-  });
+  // ---- Epic SmartPhrase template ----
+  var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",
+    "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "Problems: @PROB@",
+    "Meds: @HTNMEDS@", "Social Hx: @TOBHX@"].join("\n");
+  document.getElementById("spText").textContent = SP;
   document.getElementById("copySp").addEventListener("click", function () {
     var msg = document.getElementById("copyMsg");
     var done = function () { msg.textContent = "copied ✓"; setTimeout(function () { msg.textContent = ""; }, 1800); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(SP[spVer]).then(done, fallback);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(SP).then(done, fallback);
     else fallback();
     function fallback() {
-      var t = document.createElement("textarea"); t.value = SP[spVer]; document.body.appendChild(t);
+      var t = document.createElement("textarea"); t.value = SP; document.body.appendChild(t);
       t.select(); try { document.execCommand("copy"); } catch (e) {} document.body.removeChild(t); done();
     }
   });
-  renderSp();
 
   renderForm();
   onFieldInput();
