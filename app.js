@@ -47,21 +47,27 @@
   // must fall through to the guarded inference, not be read as a Yes/No answer.
   var BOOL_FIELDS = { dm: 1, smoking: 1, bp_tx: 1, statin: 1 };
 
+  // Phrases that mean "data is missing/unknown" — must return null, not a
+  // clinical Yes or No. Checked before TRUE/FALSE word matching.
+  var MISSING_DATA = /\b(?:not on file|not documented|not assessed|not available|unavailable|unknown|n\/a|no data|not recorded|not entered|unable to obtain|pending|not provided|deferred)\b/i;
+
   function firstNumber(s) {
     // handles "132/80" -> 132, ">90" -> 90, "6.1 %" -> 6.1, "1,234" -> 1234
     if (s == null) return null;
-    var m = String(s).replace(/,(?=\d{3}\b)/g, "").match(/-?\d+(\.\d+)?/);
+    var str = String(s);
+    if (MISSING_DATA.test(str)) return null;
+    var m = str.replace(/,(?=\d{3}\b)/g, "").match(/-?\d+(\.\d+)?/);
     return m ? parseFloat(m[0]) : null;
   }
 
   var TRUE_WORDS = /\b(yes|y|true|positive|pos|present|current|active|on|1|\+)\b/i;
-  var FALSE_WORDS = /\b(no|n|false|negative|neg|none|never|former|quit|denies|absent|not on file|off|0)\b/i;
+  var FALSE_WORDS = /\b(no|n|false|negative|neg|none|never|former|quit|denies|absent|off|0)\b/i;
 
   function parseBool(s) {
     if (s == null) return null;
     var t = String(s).trim();
     if (t === "") return null;
-    // Order: explicit negatives (never/former/denies) win for smoking-type fields
+    if (MISSING_DATA.test(t)) return null;
     if (FALSE_WORDS.test(t) && !TRUE_WORDS.test(t)) return false;
     if (TRUE_WORDS.test(t) && !FALSE_WORDS.test(t)) return true;
     // both or neither -> prefer negative token position vs positive
@@ -94,11 +100,26 @@
 
   var BLANK_RE = /^[\s*_.\-–—]*$/; // empty, wildcard, or dashes only
 
+  // ---- Text normalization ------------------------------------------------
+  // Epic output can contain non-breaking spaces, smart quotes, en/em-dashes,
+  // and tabs. Normalizing before parsing prevents subtle match failures.
+  function normalizeText(text) {
+    return text
+      .replace(/ /g, " ")
+      .replace(/–/g, "-")
+      .replace(/—/g, " - ")
+      .replace(/[‘’]/g, "'")
+      .replace(/[“”]/g, '"')
+      .replace(/\r\n/g, "\n")
+      .replace(/\t/g, "  ");
+  }
+
   // Parse a pasted block into a partial input object + which fields were found.
   function parseText(text) {
-    var out = {}, found = {};
-    if (!text) return { values: out, found: found };
-    var lines = text.split(/\r?\n/);
+    var out = {}, found = {}, thresholds = {};
+    if (!text) return { values: out, found: found, thresholds: thresholds, warnings: [] };
+    text = normalizeText(text);
+    var lines = text.split(/\n/);
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       if (!line || !line.trim()) continue;
@@ -127,9 +148,10 @@
         }
       }
     }
-    scanClinical(text, out, found); // scrape labs/vitals from unstructured text
-    var inferred = inferFlags(text, out, found); // meds/problems/social hx → Yes/No flags
-    return { values: out, found: found, inferred: inferred };
+    scanClinical(text, out, found, thresholds); // scrape labs/vitals from unstructured text
+    var inferred = inferFlags(text, out, found); // meds/problems/social hx -> Yes/No flags
+    var warnings = validateParsed(out, thresholds);
+    return { values: out, found: found, inferred: inferred, thresholds: thresholds, warnings: warnings };
   }
 
   function interpret(field, rest) {
@@ -144,22 +166,37 @@
 
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+  // ---- Number extraction with threshold detection ------------------------
+  // Returns { value, threshold } where threshold is "<", ">", etc. or null.
+  // Many labs report values as ">60" or "<0.5" — the threshold operator is
+  // clinically significant (the real value could be very different) and must
+  // be surfaced to the user.
+  function extractNum(s, allowThousands) {
+    if (!s) return null;
+    s = String(s).replace(/\([^)]*\)/g, " "); // drop parentheticals: ref ranges, dates, eAG
+    var re = allowThousands
+      ? /([<>≤≥])?\s*(\d[\d,]*(?:\.\d+)?)/
+      : /([<>≤≥])?\s*(\d+(?:\.\d+)?)/;
+    var m = s.match(re);
+    if (!m) return null;
+    return { value: parseFloat(m[2].replace(/,/g, "")), threshold: m[1] || null };
+  }
+
   // ---- Unstructured / lab-dump scanning ---------------------------------
   // Scrapes clinical numbers out of free text (@BRIEFLABS()@ output, a pasted
   // results view, a note). Handles both "Label: value" and compact/vertical
   // lab formats. Fills only fields not already set.
   function lineAfter(text, idx) {
     var after = text.slice(idx);
-    var nl = after.search(/\r?\n/);
+    var nl = after.search(/\n/);
     return nl >= 0 ? after.slice(0, nl) : after;
   }
   function firstNumIn(s, allowThousands) {
-    s = s.replace(/\([^)]*\)/g, " "); // drop parentheticals: ref ranges, dates, eAG
-    var re = allowThousands ? /[<>≤≥]?\s*(\d[\d,]*(?:\.\d+)?)/ : /[<>≤≥]?\s*(\d+(?:\.\d+)?)/;
-    var m = s.match(re);
-    return m ? parseFloat(m[1].replace(/,/g, "")) : null;
+    var r = extractNum(s, allowThousands);
+    return r ? r.value : null;
   }
   // Value that follows a lab-name pattern anywhere in the text.
+  // Returns { value, threshold } or null.
   function scanField(text, namePat, opts) {
     opts = opts || {};
     var re = new RegExp(namePat, "gi"), m;
@@ -173,10 +210,11 @@
       if (opts.noSlashAfter && /^\s*\//.test(rawAfter)) continue;
       var after = lineAfter(text, m.index + m[0].length);
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
-      var n = firstNumIn(after, opts.thousands);
-      if (n === null) continue;
+      var result = extractNum(after, opts.thousands);
+      if (result === null) continue;
+      var n = result.value;
       if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
-      return n;
+      return { value: n, threshold: result.threshold };
     }
     return null;
   }
@@ -191,7 +229,7 @@
       var m = text.match(pats[i]);
       if (m) { var v = parseFloat(m[1]); if (v >= 70 && v <= 260) return v; }
     }
-    // 2) fallback for reading lists (@LASTBP(n)@ → "07/10/26 : 110/72"): first
+    // 2) fallback for reading lists (@LASTBP(n)@ -> "07/10/26 : 110/72"): first
     //    SBP/DBP pair that isn't part of a date (not followed by another "/digits")
     //    and whose values are in physiologic range. Readings are most-recent-first.
     var re = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, mm;
@@ -214,7 +252,7 @@
     return Math.round(egfr); // preventr rounds eGFR to a whole number
   }
 
-  // ZIP from a city/state/zip string (e.g. @CTYSTZIP@ → "San Francisco, CA 94110").
+  // ZIP from a city/state/zip string (e.g. @CTYSTZIP@ -> "San Francisco, CA 94110").
   // Requires a valid 2-letter US state before the 5 digits so it can't grab a lab
   // value, MRN, or date.
   var US_STATES = new Set(("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD " +
@@ -227,11 +265,28 @@
     return null;
   }
 
-  function scanClinical(text, out, found) {
+  // ---- Section-awareness utility ----------------------------------------
+  // Returns the most recent standalone section header (a line ending with ":"
+  // and no inline content) above a given text position. Used to scope drug
+  // and diabetes detection so allergy/family-history sections don't trigger
+  // false positives.
+  function sectionAbove(text, pos) {
+    var chunk = text.slice(0, pos);
+    var re = /(?:^|\n)[ \t]*([^\n:]{1,60})\s*:\s*$/gm;
+    var last = null, m;
+    while ((m = re.exec(chunk)) !== null) last = m[1].trim().toLowerCase();
+    return last || "";
+  }
+
+  function scanClinical(text, out, found, thresholds) {
     function tryField(key, namePat, opts) {
       if (found[key] !== undefined) return;
-      var v = scanField(text, namePat, opts);
-      if (v !== null) { out[key] = v; found[key] = "scanned"; }
+      var result = scanField(text, namePat, opts);
+      if (result !== null) {
+        out[key] = result.value;
+        found[key] = "scanned";
+        if (result.threshold) thresholds[key] = result.threshold;
+      }
     }
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
     if (found.zip === undefined) { var z = scanZip(text); if (z) { out.zip = z; found.zip = "scanned"; } }
@@ -242,12 +297,15 @@
     tryField("hdl_c", "hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150 });
     tryField("hba1c", "(?:hb?a1c|hgba1c|a1c|glyc\\w*\\s*h[ae]moglobin|glycohemoglobin)", { min: 3, max: 20 });
     tryField("egfr", "\\be?-?gfr\\b", { min: 1, max: 200 });
-    tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?\\s*/\\s*creat(?:inine)?(?:\\s+ratio)?|alb\\s*/\\s*cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
-    // Fallback: eGFR from serum creatinine (only if eGFR wasn't found directly)
+    // UACR: accept slash, space, or dash between albumin and creatinine
+    tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?[/\\s-]+creat(?:inine)?(?:\\s+ratio)?|alb[/\\s-]+cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
+    // Fallback: eGFR from serum creatinine (only if eGFR wasn't found directly).
+    // Tightened pattern: \b after "creat" rejects "creatine kinase"; negative
+    // lookahead rejects "creatinine clearance".
     if (found.egfr === undefined && out.age != null && out.sex) {
-      var cr = scanField(text, "(?:creatinine|creat|\\bcr\\b)(?!\\s*cl)", { badWords: ["album", "alb", "urine"], noSlashBefore: true, min: 0.2, max: 15 });
-      if (cr !== null) {
-        var e = ckdEpi2021(cr, out.age, out.sex);
+      var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b)(?!\\s*(?:cl|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio"], noSlashBefore: true, min: 0.2, max: 15 });
+      if (crResult !== null) {
+        var e = ckdEpi2021(crResult.value, out.age, out.sex);
         if (e !== null) { out.egfr = e; found.egfr = "computed_from_cr"; }
       }
     }
@@ -262,18 +320,35 @@
   var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine)\b/i;
   // Lines that mean a drug is NOT actually being taken.
   var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|held\b|not taking|declined/i;
-  // Explicit "no meds" statements from focused SmartLinks — e.g. @HTNMEDS@ →
-  // "No current hypertension medications", @STATINS@ → "No current hyperlipidemia
+  // Explicit "no meds" statements from focused SmartLinks — e.g. @HTNMEDS@ ->
+  // "No current hypertension medications", @STATINS@ -> "No current hyperlipidemia
   // medications". These are affirmative negatives, so we can set the flag to false.
   var NO_HTN_MEDS = /\bno\b[^.\n]{0,28}(?:hypertension|htn|blood[- ]?pressure|anti-?hypertensive)[^.\n]{0,18}(?:medication|meds\b|agents?|drugs?|rx)/i;
   var NO_LIPID_MEDS = /\bno\b[^.\n]{0,28}(?:hyperlipidemia|lipid|cholesterol|statin)[^.\n]{0,18}(?:medication|meds\b|agents?|drugs?|rx)/i;
 
+  // Section headers used by detectDrug to skip allergy sections.
+  var ALLERGY_HDR = /\b(?:allerg|adverse\s+reaction|sensitivit|intolerance)/i;
+
   function detectDrug(text, re) {
-    var lines = text.split(/\r?\n/);
+    var lines = text.split(/\n/);
+    var inAllergySection = false;
     for (var i = 0; i < lines.length; i++) {
-      if (DRUG_SKIP_LINE.test(lines[i])) continue;
-      var m = lines[i].match(re);
-      if (m) return m[0].toLowerCase();
+      var line = lines[i];
+      // Track section transitions from standalone headers ("Allergies:", "Medications:")
+      if (/^\s*[^\n:]{1,60}\s*:\s*$/.test(line)) {
+        var header = line.replace(/^\s+/, "");
+        if (ALLERGY_HDR.test(header)) { inAllergySection = true; continue; }
+        else { inAllergySection = false; }
+      }
+      if (inAllergySection) continue;
+      if (DRUG_SKIP_LINE.test(line)) continue;
+      var m = line.match(re);
+      if (m) {
+        // Look one line ahead: if the next line has a discontinuation/allergy
+        // signal, this drug is not active — skip it.
+        if (i + 1 < lines.length && DRUG_SKIP_LINE.test(lines[i + 1])) continue;
+        return m[0].toLowerCase();
+      }
     }
     return null;
   }
@@ -287,9 +362,13 @@
       var ctx = text.slice(start, start + 44).toLowerCase();
       if (/^diabet\w*\s*insipidus/.test(ctx)) continue;             // DI is not DM
       if (/^[:*]/.test(text.slice(start + word.length).replace(/^\s+/, ""))) continue; // "Diabetes:" label
-      var pre = text.slice(Math.max(0, start - 26), start).toLowerCase();
+      // Extended lookback (60 chars) catches "Family History: Mother had diabetes"
+      var pre = text.slice(Math.max(0, start - 60), start).toLowerCase();
       if (/pre-?\s*$/.test(pre)) continue;                          // pre-diabetes
       if (DM_NEG.test(pre)) continue;
+      // Section awareness: skip family history and allergy sections
+      var section = sectionAbove(text, start);
+      if (/\b(?:family|fhx|allerg|adverse)/i.test(section)) continue;
       var scope = pre + " " + ctx;
       if (/type\s*2|type\s*ii\b|t2dm|dm\s*2/.test(scope)) return "Type 2 diabetes";
       if (/type\s*1|type\s*i\b|t1dm|dm\s*1/.test(scope)) return "Type 1 diabetes";
@@ -299,21 +378,47 @@
     }
     // abbreviations: T2DM, DM2, "type 2 DM"
     var a = text.match(/\b(?:type\s*[12]\s*dm|dm\s*(?:type\s*)?[12]|t[12]dm)\b/i);
-    if (a && !DM_NEG.test(text.slice(Math.max(0, a.index - 26), a.index).toLowerCase()))
-      return /1/.test(a[0]) ? "Type 1 diabetes" : "Type 2 diabetes";
+    if (a) {
+      var aPre = text.slice(Math.max(0, a.index - 60), a.index).toLowerCase();
+      if (!DM_NEG.test(aPre)) {
+        var aSec = sectionAbove(text, a.index);
+        if (!/\b(?:family|fhx|allerg|adverse)/i.test(aSec))
+          return /1/.test(a[0]) ? "Type 1 diabetes" : "Type 2 diabetes";
+      }
+    }
     // standalone uppercase DM (clinical shorthand)
     var d = text.match(/\bDM\b/);
-    if (d && text.charAt(d.index + 2) !== ":" &&
-        !DM_NEG.test(text.slice(Math.max(0, d.index - 26), d.index).toLowerCase()))
-      return "Diabetes (DM)";
+    if (d && text.charAt(d.index + 2) !== ":") {
+      var dPre = text.slice(Math.max(0, d.index - 60), d.index).toLowerCase();
+      if (!DM_NEG.test(dPre)) {
+        var dSec = sectionAbove(text, d.index);
+        if (!/\b(?:family|fhx|allerg|adverse)/i.test(dSec))
+          return "Diabetes (DM)";
+      }
+    }
     return null;
   }
 
+  // Negation context: these words immediately before a positive smoking match
+  // mean the match is negated ("not a current smoker", "denies smoking").
+  var SMOKE_NEG = /\b(?:not?|never|neither|deny|denies|denied|no longer|non|former|ex|isn't|is\s+not|not\s+a|was\s+not|doesn't|does\s+not)\s*$/i;
+
   function detectSmoking(text) {
-    var cur = text.match(/\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b)/i);
-    if (cur) return { value: true, evidence: cur[0].trim() };
+    // Iterate all positive matches — skip any that are negated in context.
+    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b)/gi;
+    var cur, negatedEvidence = null;
+    while ((cur = curRe.exec(text)) !== null) {
+      var pre = text.slice(Math.max(0, cur.index - 25), cur.index);
+      if (SMOKE_NEG.test(pre)) {
+        if (!negatedEvidence) negatedEvidence = cur[0].trim();
+        continue;
+      }
+      return { value: true, evidence: cur[0].trim() };
+    }
     var non = text.match(/\b(?:never\s*smok\w*|former\s*smoker|ex-?\s*smoker|non-?\s*smoker|smoking\s+status\s*:?\s*(?:never|former|quit)|quit\s+smoking|former\s+tobacco|denies\s+tobacco|no\s+tobacco)\b/i);
     if (non) return { value: false, evidence: non[0].trim() };
+    // A negated positive ("not a current smoker") is evidence of non-smoking
+    if (negatedEvidence) return { value: false, evidence: "negated: " + negatedEvidence };
     return null;
   }
 
@@ -346,6 +451,20 @@
     }
     if (found.smoking === undefined) { var sm = detectSmoking(text); if (sm) { out.smoking = sm.value; found.smoking = "inferred"; inferred.smoking = sm; } }
     return inferred;
+  }
+
+  // ---- Post-parse validation (cross-field + threshold warnings) ----------
+  function validateParsed(out, thresholds) {
+    var warnings = [];
+    var LABELS = { egfr: "eGFR", hba1c: "HbA1c", uacr: "UACR", total_c: "Total cholesterol", hdl_c: "HDL", sbp: "SBP", bmi: "BMI" };
+    Object.keys(thresholds).forEach(function (key) {
+      var lbl = LABELS[key] || key;
+      warnings.push(lbl + " was reported as \"" + thresholds[key] + out[key] + "\" — this is a threshold, not an exact measurement. Enter the actual value if known.");
+    });
+    if (out.total_c != null && out.hdl_c != null && out.total_c <= out.hdl_c) {
+      warnings.push("Total cholesterol (" + out.total_c + ") ≤ HDL (" + out.hdl_c + ") — values may be swapped.");
+    }
+    return warnings;
   }
 
   // ---- Model selection (mirrors preventr::select_model) ------------------
@@ -385,7 +504,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();

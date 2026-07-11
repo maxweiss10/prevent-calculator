@@ -187,15 +187,21 @@
     <p><b>How it works:</b> Paste your Epic PREVENT dot phrase, a labs/results
       view, or a note — everything is parsed <b>in your browser</b> (no data leaves the page) and pre-fills
       the editable form above. It reads the values with deterministic pattern rules (not AI), so it:</p>
-    <ul style="margin:4px 0 8px; padding-left:18px;">
-      <li>scrapes labs &amp; vitals from result tables, <span class="kbd">@LASTBP(n)@</span> reading lists,
+    <ul style=”margin:4px 0 8px; padding-left:18px;”>
+      <li>normalizes Unicode (smart quotes, non-breaking spaces, en/em-dashes) so copy-paste artifacts don’t break matching;</li>
+      <li>scrapes labs &amp; vitals from result tables, <span class=”kbd”>@LASTBP(n)@</span> reading lists,
         comma lists, and prose — taking the systolic of the most recent BP and ignoring dates/reference ranges;</li>
+      <li>detects <b>threshold values</b> (like “eGFR &gt;60”) and warns you that the parsed number is a
+        reporting limit, not an exact measurement — enter the actual value if known;</li>
       <li>computes <b>eGFR</b> from serum creatinine (CKD-EPI 2021) when only creatinine is shown;</li>
       <li>detects <b>diabetes, statin, antihypertensive, and smoking</b> from problem-list / medication /
         social-history text: a listed drug or diagnosis ⇒ <b>Yes</b>; when the source is present but the item
         isn’t in it (no diabetes on the problem list, “No current … medications”) ⇒ <b>No, flagged to verify</b>.
-        Guards exclude pre-diabetes, family history, allergies, and discontinued meds. If there’s no source to
+        Guards exclude pre-diabetes, family history (including multi-line family-history sections), allergies,
+        discontinued meds, and negated phrases (“not a current smoker”). If there’s no source to
         rule an item out, it’s left blank for you to enter;</li>
+      <li>treats “not on file”, “N/A”, “unknown”, and similar phrases as <b>missing data</b>, not as a clinical No;</li>
+      <li>validates cross-field plausibility (e.g. total cholesterol &le; HDL suggests swapped values);</li>
       <li>auto-selects the model (base, or +HbA1c / +UACR / +SDI / full) from whichever optional values are present.</li>
     </ul>
     <p>Values read from the paste show a <b style="color:var(--ok)">green</b> dot; auto-detected ones show an
@@ -220,9 +226,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=6"></script>
-<script src="prevent.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="coeffs.js?v=7"></script>
+<script src="prevent.js?v=7"></script>
+<script src="app.js?v=7"></script>
 <script>
 (function () {
   "use strict";
@@ -358,6 +364,8 @@
     var res = APP.parseText(text);
     state.parsed = res.found;
     state.inferred = res.inferred || {};
+    state.thresholds = res.thresholds || {};
+    state.parseWarnings = res.warnings || [];
     state.computedEgfr = res.found.egfr === "computed_from_cr" ? res.values.egfr : null;
     Object.keys(res.values).forEach(function (k) {
       var el = document.getElementById("f_" + k);
@@ -466,6 +474,9 @@
         }
       });
       if (items.length) probs.unshift("Auto-detected — please verify each: " + items.join("; ") + ".");
+    }
+    if (state.parseWarnings && state.parseWarnings.length) {
+      state.parseWarnings.forEach(function (w) { probs.push(w); });
     }
     if (state.computedEgfr != null && Math.abs(v.egfr - state.computedEgfr) < 0.5)
       probs.push("eGFR was computed from serum creatinine (CKD-EPI 2021), not reported directly — verify.");
