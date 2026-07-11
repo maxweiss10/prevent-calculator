@@ -21,29 +21,36 @@ Press **F2** to jump between wildcards.
 
 ## Full auto (recommended)
 
+This example uses one working **UCSF** SmartLink set — swap in your build's tokens if they differ.
+Whatever they print, the parser reads it.
+
 ```
 PREVENT INPUTS
 Age: @AGE@
 Sex: @SEX@
-BP: @BP@
+BP: @LASTBP(3)@
 BMI: @BMI@
+Cholesterol: @BRIEFLAB(CHOL,HDL)@
+eGFR: @NEPHEGFR@
 City/State/ZIP: @CTYSTZIP@
-Labs: @BRIEFLABS()@
 Problems: @PROB@
-Meds: @MEDS@
-Social Hx: @SOCIALHX@
+HTN Meds: @HTNMEDS@
+Statin: @STATINS@
+Social Hx: @TOBHX@
 ```
 
-- `@AGE@ @SEX@ @BP@ @BMI@` — standard foundation SmartLinks (systolic taken from `@BP@`).
-- `@BRIEFLABS()@` — recent labs; the app finds Total chol, HDL, HbA1c, eGFR (or computes it from
-  creatinine), and UACR anywhere in it.
-- `@PROB@` / `@MEDS@` / `@SOCIALHX@` — problem list / medication list / social history. The app
-  detects **diabetes** (from problems), **statin** and **antihypertensive** (from meds, ignoring
-  allergy/discontinued lines), and **smoking status** (from social hx). Detected values are marked
-  "verify."
-- Token names vary a little by build: if `@PROB@`, `@MEDS@`, or `@SOCIALHX@` don't resolve, use your
-  build's equivalents (e.g. `@PROBLEMLIST@`, `@CURMEDS@`/`@OUTMEDS@`, `@SMOKINGSTATUS@`). Whatever
-  they print, the calculator scrapes it.
+- `@AGE@ @SEX@ @BMI@` — demographics/vitals. `@LASTBP(3)@` prints the last 3 BP readings; the app
+  takes the systolic of the **most recent** one (and isn't fooled by the dates).
+- `@BRIEFLAB(CHOL,HDL)@` and `@NEPHEGFR@` — the app pulls Total chol, HDL, and eGFR out of the
+  result tables (and computes eGFR from creatinine if only that is shown).
+- `@CTYSTZIP@` — city/state/zip → SDI decile (blank if not on file → base model).
+- `@PROB@` / `@HTNMEDS@` / `@STATINS@` / `@TOBHX@` — problem list, focused HTN-med and statin lists,
+  and tobacco history. The app detects **diabetes** (from problems), and reads the focused lists
+  directly: a **"No current … medications"** line ⇒ that flag is **No**; a listed drug ⇒ **Yes**.
+  Smoking comes from the tobacco status (Never/Former/Current). All four are marked "verify."
+- Other builds: common equivalents include `@BP@`, `@BRIEFLABS()@`, `@PROBLEMLIST@`,
+  `@CURMEDS@`/`@OUTMEDS@`, `@SMOKINGSTATUS@`. Use the **Labs only** version if you'd rather answer the
+  four Yes/No by hand.
 
 ## Labs only
 

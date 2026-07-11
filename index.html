@@ -179,13 +179,15 @@
     </div>
     <pre id="spText" style="background:var(--field);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre;margin:0;"></pre>
     <p class="unit" style="margin:8px 0 0;">
-      <b>Full auto</b> pulls everything: <span class="kbd">@BRIEFLABS()@</span> for labs, and
-      <span class="kbd">@PROB@</span> / <span class="kbd">@MEDS@</span> / <span class="kbd">@SOCIALHX@</span>
-      so the calculator can also detect <b>diabetes, statin, antihypertensive, and smoking</b> from your
-      problem/med/social data — no typing. Anything auto-detected shows an <b style="color:#d98324">amber dot</b>
-      and a "verify" note, since a med/problem list can't always convey intent (e.g. a β-blocker not used for BP).
-      <b>Labs only</b> keeps the four Yes/No as <b>***</b> wildcards (press <span class="kbd">F2</span> to jump).
-      Blank or missing values just fall through to the editable form.
+      <b>Full auto</b> pulls everything — labs, problems, meds, and social history — so the calculator can also
+      detect <b>diabetes, statin, antihypertensive, and smoking</b> with no typing. SmartLink tokens vary by
+      Epic build; the template shows one working UCSF set (<span class="kbd">@LASTBP(3)@</span>,
+      <span class="kbd">@BRIEFLAB(CHOL,HDL)@</span>, <span class="kbd">@NEPHEGFR@</span>,
+      <span class="kbd">@HTNMEDS@</span>, <span class="kbd">@STATINS@</span>, <span class="kbd">@TOBHX@</span>) —
+      swap in your own if they differ. Whatever they print, the parser reads it: a "No current … medications"
+      line ⇒ that flag is No; a listed drug ⇒ Yes. Auto-detected values show an <b style="color:#d98324">amber dot</b>
+      and a "verify" note. <b>Labs only</b> keeps the four Yes/No as <b>***</b> wildcards (press
+      <span class="kbd">F2</span> to jump). Anything blank falls through to the editable form.
     </p>
   </div>
 
@@ -208,9 +210,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=4"></script>
-<script src="prevent.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="coeffs.js?v=5"></script>
+<script src="prevent.js?v=5"></script>
+<script src="app.js?v=5"></script>
 <script>
 (function () {
   "use strict";
@@ -505,9 +507,10 @@
 
   // ---- Epic SmartPhrase templates ----
   var SP = {
-    C: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
-        "City/State/ZIP: @CTYSTZIP@", "Labs: @BRIEFLABS()@", "Problems: @PROB@", "Meds: @MEDS@",
-        "Social Hx: @SOCIALHX@"].join("\n"),
+    C: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",
+        "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "City/State/ZIP: @CTYSTZIP@",
+        "Problems: @PROB@", "HTN Meds: @HTNMEDS@", "Statin: @STATINS@",
+        "Social Hx: @TOBHX@"].join("\n"),
     A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
         "Diabetes: ***", "Current smoker: ***", "On antihypertensive: ***", "On statin: ***",
         "City/State/ZIP: @CTYSTZIP@", "Labs: @BRIEFLABS()@"].join("\n"),

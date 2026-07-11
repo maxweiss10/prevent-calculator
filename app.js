@@ -22,7 +22,9 @@
     total_c: ["total cholesterol", "total chol", "cholesterol total", "tc", "total-c", "cholesterol"],
     hdl_c: ["hdl cholesterol", "hdl-c", "hdl"],
     dm: ["diabetes", "diabetes mellitus", "dm", "diabetic", "t2dm", "t1dm"],
-    smoking: ["current smoker", "current smoking", "smoker", "smoking", "tobacco", "tobacco use"],
+    // "tobacco" intentionally excluded — it matches "Smokeless tobacco: Never"
+    // and would hijack cigarette smoking status. detectSmoking() handles tobacco.
+    smoking: ["current smoker", "current smoking", "smoker", "smoking"],
     bmi: ["bmi", "body mass index"],
     egfr: ["egfr", "gfr", "estimated gfr", "e-gfr"],
     bp_tx: ["on antihypertensive", "antihypertensive", "anti-hypertensive", "bp meds",
@@ -114,6 +116,10 @@
           // so bare mentions in prose/problem lists don't become answers.
           if (BOOL_FIELDS[field] && !/^\s*[:=]/.test(after)) break;
           var rest = valueRegion(after);
+          // A bool value that names a med section ("Current Hypertension
+          // Medications") is a header, not a Yes/No answer — defer to inference,
+          // which reads the "No current ... medications" / drug lines below it.
+          if (BOOL_FIELDS[field] && /\bmedications?\b|\bhypertension\b|\bhyperlipidemia\b/i.test(rest)) break;
           if (BLANK_RE.test(rest)) { break; } // present but blank/wildcard -> leave unset
           var val = interpret(field, rest);
           if (val !== null && val !== undefined) { out[field] = val; found[field] = true; }
@@ -175,14 +181,23 @@
     return null;
   }
   function scanSbp(text) {
+    // 1) explicit "BP 148/86", "148/86 mmHg", "SBP 148"
     var pats = [
-      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*\/\s*\d{2,3}/i, // 148/86
-      /(\d{2,3})\s*\/\s*\d{2,3}\s*mm\s*hg/i,                              // 148/86 mmHg
-      /\b(?:sbp|systolic(?:\s*(?:bp|blood\s*pressure))?)\b[^\d\n]{0,12}(\d{2,3})/i, // SBP 148
+      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*\/\s*\d{2,3}/i,
+      /(\d{2,3})\s*\/\s*\d{2,3}\s*mm\s*hg/i,
+      /\b(?:sbp|systolic(?:\s*(?:bp|blood\s*pressure))?)\b[^\d\n]{0,12}(\d{2,3})/i,
     ];
     for (var i = 0; i < pats.length; i++) {
       var m = text.match(pats[i]);
-      if (m) { var v = parseFloat(m[1]); if (v >= 60 && v <= 260) return v; }
+      if (m) { var v = parseFloat(m[1]); if (v >= 70 && v <= 260) return v; }
+    }
+    // 2) fallback for reading lists (@LASTBP(n)@ → "07/10/26 : 110/72"): first
+    //    SBP/DBP pair that isn't part of a date (not followed by another "/digits")
+    //    and whose values are in physiologic range. Readings are most-recent-first.
+    var re = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, mm;
+    while ((mm = re.exec(text)) !== null) {
+      var s = +mm[1], d = +mm[2];
+      if (s >= 70 && s <= 260 && d >= 30 && d <= 160) return s;
     }
     return null;
   }
@@ -221,8 +236,10 @@
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
     if (found.zip === undefined) { var z = scanZip(text); if (z) { out.zip = z; found.zip = "scanned"; } }
     tryField("bmi", "bmi", { min: 10, max: 80 });
-    tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, commaCut: true, min: 40, max: 500 });
-    tryField("hdl_c", "hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?", { badWords: ["non"], noSlashBefore: true, commaCut: true, min: 5, max: 150 });
+    // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
+    // firstNumIn already takes the first number after the label anyway.
+    tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, min: 40, max: 500 });
+    tryField("hdl_c", "hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150 });
     tryField("hba1c", "(?:hb?a1c|hgba1c|a1c|glyc\\w*\\s*h[ae]moglobin|glycohemoglobin)", { min: 3, max: 20 });
     tryField("egfr", "\\be?-?gfr\\b", { min: 1, max: 200 });
     tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?\\s*/\\s*creat(?:inine)?(?:\\s+ratio)?|alb\\s*/\\s*cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
@@ -245,6 +262,11 @@
   var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine)\b/i;
   // Lines that mean a drug is NOT actually being taken.
   var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|held\b|not taking|declined/i;
+  // Explicit "no meds" statements from focused SmartLinks — e.g. @HTNMEDS@ →
+  // "No current hypertension medications", @STATINS@ → "No current hyperlipidemia
+  // medications". These are affirmative negatives, so we can set the flag to false.
+  var NO_HTN_MEDS = /\bno\b[^.\n]{0,28}(?:hypertension|htn|blood[- ]?pressure|anti-?hypertensive)[^.\n]{0,18}(?:medication|meds\b|agents?|drugs?|rx)/i;
+  var NO_LIPID_MEDS = /\bno\b[^.\n]{0,28}(?:hyperlipidemia|lipid|cholesterol|statin)[^.\n]{0,18}(?:medication|meds\b|agents?|drugs?|rx)/i;
 
   function detectDrug(text, re) {
     var lines = text.split(/\r?\n/);
@@ -297,8 +319,14 @@
 
   function inferFlags(text, out, found) {
     var inferred = {};
-    if (found.statin === undefined) { var s = detectDrug(text, STATIN_RE); if (s) { out.statin = true; found.statin = "inferred"; inferred.statin = { value: true, evidence: s }; } }
-    if (found.bp_tx === undefined) { var h = detectDrug(text, ANTIHTN_RE); if (h) { out.bp_tx = true; found.bp_tx = "inferred"; inferred.bp_tx = { value: true, evidence: h }; } }
+    if (found.statin === undefined) {
+      if (NO_LIPID_MEDS.test(text)) { out.statin = false; found.statin = "inferred"; inferred.statin = { value: false, evidence: "no lipid-lowering meds listed" }; }
+      else { var s = detectDrug(text, STATIN_RE); if (s) { out.statin = true; found.statin = "inferred"; inferred.statin = { value: true, evidence: s }; } }
+    }
+    if (found.bp_tx === undefined) {
+      if (NO_HTN_MEDS.test(text)) { out.bp_tx = false; found.bp_tx = "inferred"; inferred.bp_tx = { value: false, evidence: "no antihypertensive meds listed" }; }
+      else { var h = detectDrug(text, ANTIHTN_RE); if (h) { out.bp_tx = true; found.bp_tx = "inferred"; inferred.bp_tx = { value: true, evidence: h }; } }
+    }
     if (found.dm === undefined) { var d = detectDiabetes(text); if (d) { out.dm = true; found.dm = "inferred"; inferred.dm = { value: true, evidence: d }; } }
     if (found.smoking === undefined) { var sm = detectSmoking(text); if (sm) { out.smoking = sm.value; found.smoking = "inferred"; inferred.smoking = sm; } }
     return inferred;
