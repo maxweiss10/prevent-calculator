@@ -74,6 +74,7 @@
     border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
   input.bad, select.bad { border-color: var(--high); }
   .unit { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  p.unit { white-space: normal; } /* explainer/hint paragraphs wrap; inline unit labels stay nowrap */
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { border: none; border-radius: 0; background: var(--field); padding: 7px 10px; font-size: 13px; color: var(--muted); }
   .seg button.sel { background: var(--brand); color: var(--brand-ink); }
