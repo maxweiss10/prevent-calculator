@@ -151,7 +151,11 @@
     scanClinical(text, out, found, thresholds); // scrape labs/vitals from unstructured text
     var inferred = inferFlags(text, out, found); // meds/problems/social hx -> Yes/No flags
     var warnings = validateParsed(out, thresholds);
-    return { values: out, found: found, inferred: inferred, thresholds: thresholds, warnings: warnings };
+    // Independent second parse + differential cross-check (does NOT change values;
+    // only flags fields where a different algorithm disagrees).
+    var second = parseIndependent(text);
+    var conflicts = crossCheck(out, second);
+    return { values: out, found: found, inferred: inferred, thresholds: thresholds, warnings: warnings, second: second, conflicts: conflicts };
   }
 
   function interpret(field, rest) {
@@ -173,7 +177,11 @@
   // be surfaced to the user.
   function extractNum(s, allowThousands) {
     if (!s) return null;
-    s = String(s).replace(/\([^)]*\)/g, " "); // drop parentheticals: ref ranges, dates, eAG
+    // normalize two-char inequalities so ">= 60"/"<= 0.3" register a threshold
+    s = String(s).replace(/>=/g, "≥").replace(/<=/g, "≤");
+    // drop parentheticals AND bracketed ranges: "(125-200)", "[70-99]" — these are
+    // reference ranges, dates, or eAG annotations, never the reported value.
+    s = s.replace(/\([^)]*\)/g, " ").replace(/\[[^\]]*\]/g, " ");
     var re = allowThousands
       ? /([<>≤≥])?\s*(\d[\d,]*(?:\.\d+)?)/
       : /([<>≤≥])?\s*(\d+(?:\.\d+)?)/;
@@ -202,8 +210,19 @@
     var re = new RegExp(namePat, "gi"), m;
     while ((m = re.exec(text)) !== null) {
       if (m.index === re.lastIndex) re.lastIndex++;
-      var pre = text.slice(Math.max(0, m.index - 6), m.index).toLowerCase();
+      // Look-back for badWords, but CLAMP to the current line — never cross a
+      // newline into the previous line (else "HDL: 30\nCHOL" would see "hdl" and
+      // wrongly reject the cholesterol; "Ratio: 150\nCreatinine" would see "ratio").
+      var lnStart = text.lastIndexOf("\n", m.index - 1) + 1;
+      var pre = text.slice(Math.max(lnStart, m.index - 12), m.index).toLowerCase();
       if (opts.badWords && opts.badWords.some(function (w) { return pre.indexOf(w) >= 0; })) continue;
+      // line-level reject: skip if the label's whole line contains an excluded word
+      // (e.g. "Microalbumin Creat Ratio: 12" must not be read as creatinine).
+      if (opts.rejectLine) {
+        var ls = text.lastIndexOf("\n", m.index) + 1;
+        var le0 = text.indexOf("\n", m.index); if (le0 < 0) le0 = text.length;
+        if (opts.rejectLine.test(text.slice(ls, le0))) continue;
+      }
       // ratio guard: reject "X/HDL" (slash immediately before) or "Chol/HDL" (slash immediately after name)
       if (opts.noSlashBefore && /\/\s*$/.test(text.slice(Math.max(0, m.index - 2), m.index))) continue;
       var rawAfter = text.slice(m.index + m[0].length);
@@ -211,6 +230,18 @@
       var after = lineAfter(text, m.index + m[0].length);
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
       var result = extractNum(after, opts.thousands);
+      // vertical-layout fallback: label on its own line, value on the NEXT line.
+      // Only accept a next line that is ENTIRELY a number (optionally with a unit),
+      // so "eGFR\n68" works but "eGFR\ncarvedilol 10 mg" does not.
+      if (result === null && opts.allowNextLine) {
+        var lend = text.indexOf("\n", m.index + m[0].length);
+        if (lend >= 0) {
+          var nend = text.indexOf("\n", lend + 1); if (nend < 0) nend = text.length;
+          var nextLine = text.slice(lend + 1, nend);
+          if (/^\s*[<>≤≥]?\s*\d[\d,]*(?:\.\d+)?\s*(?:%|mg\/dl|mmol\/l|ml\/min[^\n]*|kg\/m²?2?|µmol\/l)?\s*$/i.test(nextLine))
+            result = extractNum(nextLine, opts.thousands);
+        }
+      }
       if (result === null) continue;
       var n = result.value;
       if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
@@ -290,23 +321,33 @@
     }
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
     if (found.zip === undefined) { var z = scanZip(text); if (z) { out.zip = z; found.zip = "scanned"; } }
-    tryField("bmi", "bmi", { min: 10, max: 80 });
+    tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true });
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
-    // firstNumIn already takes the first number after the label anyway.
-    tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, min: 40, max: 500 });
-    tryField("hdl_c", "hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150 });
-    tryField("hba1c", "(?:hb?a1c|hgba1c|a1c|glyc\\w*\\s*h[ae]moglobin|glycohemoglobin)", { min: 3, max: 20 });
-    tryField("egfr", "\\be?-?gfr\\b", { min: 1, max: 200 });
+    // firstNumIn already takes the first number after the label anyway. "\btc\b"
+    // catches the "TC" abbreviation (bounded, so it won't match inside words).
+    tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, min: 40, max: 500, allowNextLine: true });
+    tryField("hdl_c", "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150, allowNextLine: true });
+    tryField("hba1c", "(?:hb?a1c|hgba1c|a1c|glyc\\w*\\s*(?:h[ae]moglobin|hgb|hb)|glycohemoglobin)", { min: 3, max: 20, allowNextLine: true });
+    tryField("egfr", "\\be?-?gfr(?:cr|cys|creat)?\\b", { min: 1, max: 200, allowNextLine: true });
     // UACR: accept slash, space, or dash between albumin and creatinine
     tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?[/\\s-]+creat(?:inine)?(?:\\s+ratio)?|alb[/\\s-]+cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
     // Fallback: eGFR from serum creatinine (only if eGFR wasn't found directly).
-    // Tightened pattern: \b after "creat" rejects "creatine kinase"; negative
-    // lookahead rejects "creatinine clearance".
+    // "\b after creat" rejects "creatine kinase"; lookahead rejects "creatinine
+    // clearance"; rejectLine rejects albumin/ratio lines so "Microalbumin Creat
+    // Ratio: 12" is never read as a serum creatinine of 12.
     if (found.egfr === undefined && out.age != null && out.sex) {
-      var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b)(?!\\s*(?:cl|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio"], noSlashBefore: true, min: 0.2, max: 15 });
+      // "\bs?cr\b" also matches the "SCr" (serum creatinine) shorthand.
+      var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b|\\bs?cr\\b)(?!\\s*(?:cl\\b|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio", "micro"], rejectLine: /album|ratio|\buacr\b|urine|clearance|kinase/i, noSlashBefore: true, min: 0.2, max: 15 });
       if (crResult !== null) {
         var e = ckdEpi2021(crResult.value, out.age, out.sex);
         if (e !== null) { out.egfr = e; found.egfr = "computed_from_cr"; }
+      } else {
+        // µmol/L (SI units): explicit unit required, value ~40–1200; convert /88.4.
+        var mu = text.match(/(?:creatinine|creat|\bs?cr\b)[^\n]{0,14}?([<>≤≥]?\s*\d{2,4})\s*(?:µmol|umol|μmol)/i);
+        if (mu) {
+          var e2 = ckdEpi2021(parseFloat(mu[1].replace(/[^\d.]/g, "")), out.age, out.sex, "umol");
+          if (e2 !== null) { out.egfr = e2; found.egfr = "computed_from_cr"; }
+        }
       }
     }
   }
@@ -316,10 +357,15 @@
   // former) when detected; NEVER assumes "No" from absence. Everything set
   // here is marked "inferred" so the UI can prompt verification and show the
   // matched evidence (a med/problem list can't always convey intent).
-  var STATIN_RE = /\b(?:atorva|rosuva|simva|prava|lova|pitava|fluva)statin\b|\b(?:lipitor|crestor|zocor|pravachol|livalo|lescol|altoprev|ezallor|vytorin|caduet|roszet|simcor)\b/i;
-  var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine)\b/i;
+  var STATIN_RE = /\b(?:atorva|rosuva|simva|prava|lova|pitava|fluva)statin\b|\b(?:lipitor|crestor|zocor|pravachol|livalo|lescol|altoprev|altocor|mevacor|flolipid|zypitamag|ezallor|vytorin|caduet|roszet|simcor)\b/i;
+  // Generic names first, then common US brand names — a med list may print either.
+  var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine|norvasc|cozaar|hyzaar|diovan|benicar|micardis|avapro|atacand|teveten|edarbi|lopressor|toprol|tenormin|coreg|bystolic|corgard|sectral|cardizem|cartia|tiazac|calan|verelan|isoptin|covera|adalat|procardia|sular|plendil|cardene|lasix|microzide|aldactone|inspra|bumex|demadex|edecrin|zaroxolyn|lozol|catapres|lotrel|zestril|prinivil|vasotec|altace|accupril|monopril|mavik|aceon|univasc|lotensin|capoten|cardura|hytrin|minipress|aldomet|tekturna|apresoline|loniten|dyazide|maxzide|tenoretic|exforge|tribenzor|azor|twynsta|amturnide)\b/i;
   // Lines that mean a drug is NOT actually being taken.
   var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|held\b|not taking|declined/i;
+  // Narrower set for the NEXT-line check: only true discontinuation signals, NOT
+  // "allerg"/"adverse" (those would false-trigger on an "Allergies:" header that
+  // simply follows the last active med).
+  var DISCON_NEXT = /discontinu|stopped|\bheld\b|inactive|no longer|not taking|\bd\/?c(?:'?d|ed)?\b/i;
   // Explicit "no meds" statements from focused SmartLinks — e.g. @HTNMEDS@ ->
   // "No current hypertension medications", @STATINS@ -> "No current hyperlipidemia
   // medications". These are affirmative negatives, so we can set the flag to false.
@@ -344,9 +390,12 @@
       if (DRUG_SKIP_LINE.test(line)) continue;
       var m = line.match(re);
       if (m) {
-        // Look one line ahead: if the next line has a discontinuation/allergy
-        // signal, this drug is not active — skip it.
-        if (i + 1 < lines.length && DRUG_SKIP_LINE.test(lines[i + 1])) continue;
+        // Look one line ahead: if the next line is an indented discontinuation
+        // note ("  Discontinued 2024-01-15"), this drug is not active — skip it.
+        // Exclude section headers (ending in ":") so a following "Allergies:"
+        // header doesn't get mistaken for a discontinuation of this drug.
+        var nxt = lines[i + 1];
+        if (nxt && !/:\s*$/.test(nxt) && DISCON_NEXT.test(nxt)) continue;
         return m[0].toLowerCase();
       }
     }
@@ -386,6 +435,22 @@
           return /1/.test(a[0]) ? "Type 1 diabetes" : "Type 2 diabetes";
       }
     }
+    // clinical name-abbreviations without a digit: NIDDM (type 2), IDDM (type 1),
+    // DMII / DM II (type 2), DMI / DM I (type 1). These contain no "diabet" or
+    // digit, so the loops above miss them — a real gap that yields a false "No".
+    var b = text.match(/\b(?:niddm|iddm|dm\s*i{1,2}|dmi{1,2})\b/i);
+    if (b) {
+      var bPre = text.slice(Math.max(0, b.index - 60), b.index).toLowerCase();
+      if (!DM_NEG.test(bPre)) {
+        var bSec = sectionAbove(text, b.index);
+        if (!/\b(?:family|fhx|allerg|adverse)/i.test(bSec)) {
+          var tok = b[0].toLowerCase().replace(/\s+/g, "");
+          // niddm & dmii/dm-ii => type 2; iddm & dmi/dm-i => type 1
+          if (tok === "niddm" || tok === "dmii") return "Type 2 diabetes";
+          if (tok === "iddm" || tok === "dmi") return "Type 1 diabetes";
+        }
+      }
+    }
     // standalone uppercase DM (clinical shorthand)
     var d = text.match(/\bDM\b/);
     if (d && text.charAt(d.index + 2) !== ":") {
@@ -415,7 +480,11 @@
       }
       return { value: true, evidence: cur[0].trim() };
     }
-    var non = text.match(/\b(?:never\s*smok\w*|former\s*smoker|ex-?\s*smoker|non-?\s*smoker|smoking\s+status\s*:?\s*(?:never|former|quit)|quit\s+smoking|former\s+tobacco|denies\s+tobacco|no\s+tobacco)\b/i);
+    // Non-smoker signals. Include "Tobacco: Never/Former/Quit" (a very common Epic
+    // social-hx print) but NOT "Smokeless tobacco: Never" (that's a different axis
+    // and shouldn't decide cigarette status), and allow a qualifier between
+    // "former" and "smoker" ("former cigarette smoker").
+    var non = text.match(/\b(?:never\s*smok\w*|former\s+(?:cigarette|tobacco|cigar)?\s*smoker|ex-?\s*smoker|non-?\s*smoker|smoking\s+status\s*:?\s*(?:never|former|quit)|(?<!smokeless\s)tobacco(?:\s*use|\s*status)?\s*:?\s*(?:never|former|quit)|quit\s+smoking|denies\s+tobacco|no\s+tobacco)\b/i);
     if (non) return { value: false, evidence: non[0].trim() };
     // A negated positive ("not a current smoker") is evidence of non-smoking
     if (negatedEvidence) return { value: false, evidence: "negated: " + negatedEvidence };
@@ -467,6 +536,125 @@
     return warnings;
   }
 
+  // ---- Independent second parser (differential cross-check) --------------
+  // A DELIBERATELY DIFFERENT algorithm from the primary parser. The primary is
+  // label-anchored ("find eGFR, read the next number"). This one is a
+  // units-and-magnitude number harvester classified by SAME-LINE context. It is
+  // tuned for PRECISION over recall: it emits a value only when confident and
+  // abstains otherwise, so a disagreement is meaningful (not alarm-fatigue noise).
+  //
+  // It is NOT the source of truth — the primary parser's values are always what's
+  // used. This only flags fields where the two independent methods disagree, so
+  // the user knows a parsing error is likely there and should double-check.
+  function harvestNumbers(text) {
+    // Mask reference ranges / parentheticals with equal-length blanks so their
+    // numbers aren't harvested (e.g. "[125-200] 160" must not yield 125), while
+    // keeping indices aligned with the original text for context slicing.
+    var masked = text.replace(/\([^)]*\)/g, function (s) { return s.replace(/[^\n]/g, " "); })
+                     .replace(/\[[^\]]*\]/g, function (s) { return s.replace(/[^\n]/g, " "); });
+    var out = [], re = /[<>≤≥]?\s*\d[\d,]*(?:\.\d+)?/g, m;
+    while ((m = re.exec(masked)) !== null) {
+      var lineStart = text.lastIndexOf("\n", m.index - 1) + 1;
+      out.push({
+        val: parseFloat(m[0].replace(/[<>≤≥\s,]/g, "")),   // strip comma thousands
+        beforeLine: text.slice(lineStart, m.index).toLowerCase(), // SAME-LINE context only
+        after: text.slice(m.index + m[0].length, m.index + m[0].length + 12).toLowerCase(),
+        idx: m.index,
+      });
+    }
+    return out;
+  }
+
+  function parseIndependent(text) {
+    if (!text) return {};
+    text = normalizeText(text);
+    var V = {};
+
+    // sex — word presence (independent of the primary's label pass)
+    if (/\bfemale\b|\bwoman\b/i.test(text)) V.sex = "female";
+    else if (/\bmale\b|\bman\b/i.test(text)) V.sex = "male";
+    else { var sm = text.match(/\b(?:sex|gender)\b\s*[:=]?\s*([mf])\b/i); if (sm) V.sex = /f/i.test(sm[1]) ? "female" : "male"; }
+
+    var nums = harvestNumbers(text);
+
+    // age: 18–110 with "age" on the same line, or a year suffix (yo / y/o / years)
+    nums.forEach(function (n) {
+      if (V.age != null) return;
+      if (n.val >= 18 && n.val <= 110 && (/(?:^|[^a-z])age\b/.test(n.beforeLine) || /^\s*(?:y\/?o|yo\b|years|yrs?\b)/.test(n.after))) V.age = n.val;
+    });
+
+    // sbp: first physiologic BP pair not part of a date, else "SBP n" / "n mmHg"
+    var bpRe = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, bm;
+    while ((bm = bpRe.exec(text)) !== null) {
+      var s = +bm[1], d = +bm[2];
+      if (s >= 70 && s <= 260 && d >= 30 && d <= 160) { V.sbp = s; break; }
+    }
+    if (V.sbp == null) nums.forEach(function (n) {
+      if (V.sbp != null) return;
+      if (n.val >= 70 && n.val <= 260 && (/\bsbp\b|systolic/.test(n.beforeLine) || /mm\s*hg/.test(n.after))) V.sbp = n.val;
+    });
+
+    // cholesterol family — classify by the number's OWN line (not a char window)
+    nums.forEach(function (n) {
+      var bl = n.beforeLine;
+      if (!/chol|hdl|ldl|lipoprotein|\btc\b/.test(bl)) return;
+      if (/non[\s-]?hdl|\bldl\b|vldl|trig|ratio/.test(bl)) return;      // distractor lines
+      if (/hdl|high[\s-]?density/.test(bl)) { if (V.hdl_c == null && n.val >= 5 && n.val <= 150) V.hdl_c = n.val; return; }
+      if (/total|\btc\b|chol/.test(bl)) { if (V.total_c == null && n.val >= 40 && n.val <= 500) V.total_c = n.val; }
+    });
+
+    // bmi
+    nums.forEach(function (n) { if (V.bmi == null && n.val >= 10 && n.val <= 80 && (/bmi|body\s*mass/.test(n.beforeLine) || /kg\/m/.test(n.after))) V.bmi = n.val; });
+    // hba1c
+    nums.forEach(function (n) { if (V.hba1c == null && n.val >= 3 && n.val <= 20 && /a1c|glyc|glycohem/.test(n.beforeLine)) V.hba1c = n.val; });
+    // uacr — requires both an albumin and a creatinine/ratio cue on the line
+    nums.forEach(function (n) { if (V.uacr == null && /uacr|\bacr\b|album|microalb/.test(n.beforeLine) && /creat|\bcr\b|ratio/.test(n.beforeLine) && n.val >= 0.1 && n.val <= 25000) V.uacr = n.val; });
+    // eGFR stated — "gfr" on the line, or an mL/min unit that is NOT a creatinine
+    // CLEARANCE (95 mL/min) or other creatinine line.
+    nums.forEach(function (n) { if (V.egfr == null && n.val >= 1 && n.val <= 140 && (/gfr/.test(n.beforeLine) || (/ml\/min/.test(n.after) && !/clearance|creat/.test(n.beforeLine)))) V.egfr = n.val; });
+
+    // eGFR independently DERIVED from creatinine (a separate, strong cross-check
+    // for the most dangerous field — kept apart from any stated eGFR). Reject
+    // albumin/ratio lines ("Alb/Cr: 12" is a UACR, not a creatinine of 12) and a
+    // "cr" cue that is a ratio denominator ("/cr").
+    var crVal = null;
+    nums.forEach(function (n) {
+      if (crVal != null) return;
+      var bl = n.beforeLine;
+      if (/alb|ratio|urine|uacr|clearance|kinase|micro/.test(bl)) return;
+      if (/(?:^|[^a-z\/])(?:creatinine|creat|scr|cr)\b/.test(bl)) {
+        if (/µmol|umol|μmol/.test(n.after) && n.val >= 20 && n.val <= 1500) crVal = n.val / 88.4;
+        else if (n.val >= 0.2 && n.val <= 15) crVal = n.val;
+      }
+    });
+    if (crVal != null && V.age != null && V.sex) V.egfr_cr = ckdEpi2021(crVal, V.age, V.sex);
+
+    return V;
+  }
+
+  // Compare the primary parser's values against the independent parser's.
+  // Returns per-field status: "agree" | "conflict" | "unconfirmed" (second parser
+  // abstained). Only fields the primary actually produced are reported.
+  var XCHECK_TOL = { age: 0.5, sbp: 2, total_c: 1.5, hdl_c: 1.5, bmi: 0.2, egfr: 2, hba1c: 0.15, uacr: 2 };
+  function crossCheck(primary, second) {
+    var report = {};
+    Object.keys(XCHECK_TOL).forEach(function (f) {
+      var a = primary[f], b = second[f];
+      if (a == null || isNaN(a)) return;                 // nothing to check
+      if (b == null || isNaN(b)) { report[f] = "unconfirmed"; return; }
+      var tol = f === "uacr" ? Math.max(2, 0.05 * Math.max(a, b)) : XCHECK_TOL[f];
+      report[f] = Math.abs(a - b) <= tol ? "agree" : "conflict";
+    });
+    if (primary.sex) report.sex = second.sex ? (primary.sex === second.sex ? "agree" : "conflict") : "unconfirmed";
+    // Strong derived cross-check: stated eGFR vs. creatinine-implied eGFR.
+    if (primary.egfr != null && second.egfr_cr != null) {
+      var d = Math.abs(primary.egfr - second.egfr_cr);
+      if (d > 15 && d / Math.max(primary.egfr, second.egfr_cr) > 0.2) report.egfr = "conflict";
+      else if (!report.egfr || report.egfr === "unconfirmed") report.egfr = "agree";
+    }
+    return report;
+  }
+
   // ---- Model selection (mirrors preventr::select_model) ------------------
   function usable(v, lo, hi) { return v !== null && v !== undefined && !isNaN(v) && v >= lo && v <= hi; }
 
@@ -504,7 +692,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();

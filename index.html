@@ -66,6 +66,11 @@
   .dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; border: 1px solid var(--line); flex: none; }
   .dot.on { background: var(--ok); border-color: var(--ok); }
   .dot.infer { background: #d98324; border-color: #d98324; }
+  .dot.conflict { background: var(--high); border-color: var(--high); box-shadow: 0 0 0 3px color-mix(in srgb, var(--high) 30%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 30%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--high) 12%, transparent); } }
+  input.conflict, select.conflict { border-color: var(--high) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 20%, transparent); }
+  .panelmsg.conflict { background: color-mix(in srgb, var(--high) 12%, var(--panel)); color: var(--ink); border: 1.5px solid var(--high); }
+  .panelmsg.conflict b { color: var(--high); }
   .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin: 0 0 10px; }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
@@ -145,6 +150,7 @@
         <div class="legend" id="legend" style="display:none;">
           <span><i style="background:var(--ok)"></i>from paste</span>
           <span><i style="background:#d98324"></i>auto-detected — verify</span>
+          <span><i style="background:var(--high)"></i>parsers disagree — check!</span>
         </div>
         <div class="fields" id="reqFields"></div>
         <details class="optional" id="optWrap">
@@ -203,6 +209,10 @@
       <li>treats “not on file”, “N/A”, “unknown”, and similar phrases as <b>missing data</b>, not as a clinical No;</li>
       <li>validates cross-field plausibility (e.g. total cholesterol &le; HDL suggests swapped values);</li>
       <li>auto-selects the model (base, or +HbA1c / +UACR / +SDI / full) from whichever optional values are present.</li>
+      <li><b>runs a second, independent parser</b> (a different algorithm — number/unit harvesting instead of
+        label-anchoring) and <b>cross-checks the two</b>. When they disagree on a value — including when a stated
+        eGFR contradicts the serum creatinine — the field is flagged in <b style="color:var(--high)">red</b> as a
+        likely parsing error to double-check. The form keeps the primary parser's value.</li>
     </ul>
     <p>Values read from the paste show a <b style="color:var(--ok)">green</b> dot; auto-detected ones show an
       <b style="color:#d98324">amber</b> dot and a “verify” note. Nothing has to be perfect in Epic — every field
@@ -226,9 +236,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=7"></script>
-<script src="prevent.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="coeffs.js?v=9"></script>
+<script src="prevent.js?v=9"></script>
+<script src="app.js?v=9"></script>
 <script>
 (function () {
   "use strict";
@@ -343,7 +353,8 @@
   }
 
   function setDots(found) {
-    var anyInfer = false;
+    var anyMark = false;
+    var conflicts = state.conflicts || {};
     REQ.concat(OPT).forEach(function (f) {
       var d = document.getElementById("dot_" + f.key);
       if (!d) return;
@@ -351,9 +362,13 @@
       d.classList.toggle("on", !!v);
       var infer = v === "inferred" || v === "computed_from_cr";
       d.classList.toggle("infer", infer);
-      if (infer) anyInfer = true;
+      var conflict = conflicts[f.key] === "conflict";
+      d.classList.toggle("conflict", conflict);
+      var el = document.getElementById("f_" + f.key);
+      if (el) el.classList.toggle("conflict", conflict);
+      if (infer || conflict) anyMark = true;
     });
-    document.getElementById("legend").style.display = anyInfer ? "flex" : "none";
+    document.getElementById("legend").style.display = anyMark ? "flex" : "none";
   }
 
   // ---- parse button ----
@@ -366,6 +381,8 @@
     state.inferred = res.inferred || {};
     state.thresholds = res.thresholds || {};
     state.parseWarnings = res.warnings || [];
+    state.conflicts = res.conflicts || {};
+    state.second = res.second || {};
     state.computedEgfr = res.found.egfr === "computed_from_cr" ? res.values.egfr : null;
     Object.keys(res.values).forEach(function (k) {
       var el = document.getElementById("f_" + k);
@@ -378,7 +395,17 @@
     onFieldInput();
   }
 
-  function onFieldInput() {
+  function onFieldInput(e) {
+    // If the user edits a field that was flagged as a parser conflict, they've
+    // taken control of it — clear the conflict so the loud flag goes away.
+    if (e && e.target && e.target.getAttribute) {
+      var key = e.target.getAttribute("data-key");
+      if (key && state.conflicts && state.conflicts[key]) {
+        delete state.conflicts[key];
+        var d = document.getElementById("dot_" + key); if (d) d.classList.remove("conflict");
+        e.target.classList.remove("conflict");
+      }
+    }
     setUnitLabels(); markValidity();
     state.values = collect();
     updateSdiHint();
@@ -486,7 +513,34 @@
         probs.join("</li><li>") + '</li></ul></div>';
     }
 
-    box.innerHTML = badge + '<div class="horizons">' + h10 + h30 + '</div>' + msgs;
+    // Loud parser-conflict banner: an independent second parser disagreed with the
+    // primary on these fields, so a parsing error is likely. Form keeps the primary
+    // value; user must verify. (Cleared per-field once the user edits that field.)
+    var conflictMsg = "";
+    if (state.conflicts) {
+      var FL = {}; REQ.concat(OPT).forEach(function (f) { FL[f.key] = f.label; });
+      var citems = [];
+      Object.keys(state.conflicts).forEach(function (k) {
+        if (state.conflicts[k] !== "conflict") return;
+        var s = state.second || {};
+        var sv;
+        if (k === "egfr") {
+          // show whichever independent reading actually disagrees with the primary:
+          // a differing stated eGFR, else the creatinine-implied eGFR.
+          if (s.egfr != null && Math.abs(v.egfr - s.egfr) > 2) sv = s.egfr;
+          else if (s.egfr_cr != null) sv = s.egfr_cr + " (implied by the serum creatinine)";
+          else sv = s.egfr;
+        } else { sv = s[k]; }
+        citems.push("<b>" + (FL[k] || k) + "</b>: primary read <b>" + v[k] + "</b>, independent check read <b>" + (sv == null ? "a different value" : sv) + "</b>");
+      });
+      if (citems.length)
+        conflictMsg = '<div class="panelmsg conflict"><b>⚠ Parser conflict — verify before trusting this result.</b> ' +
+          'A second, independent parser disagreed with the primary on ' + (citems.length > 1 ? "these fields" : "this field") +
+          ', so a parsing error is likely here:<ul class="msglist"><li>' + citems.join("</li><li>") + '</li></ul>' +
+          'The form shows the <b>primary</b> value — check each against Epic and correct if wrong.</div>';
+    }
+
+    box.innerHTML = conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>' + msgs;
   }
 
   // ---- unit toggle ----
