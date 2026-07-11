@@ -192,12 +192,29 @@
   </div>
 
   <footer>
+    <p><b>How it works:</b> Paste an Epic <span class="kbd">.PREVENT</span> SmartPhrase, a labs/results
+      view, or a note — everything is parsed <b>in your browser</b> (no data leaves the page) and pre-fills
+      the editable form above. It reads the values with deterministic pattern rules (not AI), so it:</p>
+    <ul style="margin:4px 0 8px; padding-left:18px;">
+      <li>scrapes labs &amp; vitals from result tables, <span class="kbd">@LASTBP(n)@</span> reading lists,
+        comma lists, and prose — taking the systolic of the most recent BP and ignoring dates/reference ranges;</li>
+      <li>computes <b>eGFR</b> from serum creatinine (CKD-EPI 2021) when only creatinine is shown;</li>
+      <li>detects <b>diabetes, statin, antihypertensive, and smoking</b> from problem-list / medication /
+        social-history text — <b>positive evidence only</b> (a “No current … medications” line ⇒ No; a
+        listed drug ⇒ Yes), with guards for pre-diabetes, family history, allergies, and discontinued meds.
+        It never assumes “No” from silence;</li>
+      <li>auto-selects the model (base, or +HbA1c / +UACR / +SDI / full) from whichever optional values are present.</li>
+    </ul>
+    <p>Values read from the paste show a <b style="color:var(--ok)">green</b> dot; auto-detected ones show an
+      <b style="color:#d98324">amber</b> dot and a “verify” note. Nothing has to be perfect in Epic — every field
+      is editable, so confirm the values before reading the result.</p>
     <p><b>Model:</b> AHA PREVENT equations (base + optional CKM/SDI). Coefficients from the
       Supplemental Appendix of Khan SS, Matsushita K, Sang Y, et al.
       “Development and Validation of the American Heart Association’s PREVENT Equations.”
       <i>Circulation.</i> 2024;149(6):430–449. This tool’s engine was ported from and verified
       bit-for-bit against the CRAN <a href="https://github.com/martingmayer/preventr" target="_blank" rel="noopener">preventr</a>
-      package (v0.11.0) across 1,000 test cases (all 5 outcomes, both sexes, both horizons).</p>
+      package (v0.11.0) across 1,000 test cases (all 5 outcomes, both sexes, both horizons); eGFR-from-creatinine
+      matches the same package. <a href="https://github.com/maxweiss10/prevent-calculator" target="_blank" rel="noopener">Source &amp; verification</a>.</p>
     <p><b>Scope:</b> 10-year risk is validated for ages 30–79; 30-year risk for ages 30–59.
       ASCVD risk categories (low/borderline/intermediate/high) follow the 2018/2019 ACC/AHA thresholds,
       which were derived with the Pooled Cohort Equations — apply clinical judgment.</p>
