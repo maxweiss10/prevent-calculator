@@ -65,6 +65,10 @@
   .field label { font-size: 12px; color: var(--muted); font-weight: 600; display: flex; gap: 6px; align-items: center; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; border: 1px solid var(--line); flex: none; }
   .dot.on { background: var(--ok); border-color: var(--ok); }
+  .dot.infer { background: #d98324; border-color: #d98324; }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
   .field .in { display: flex; align-items: center; gap: 6px; }
   input[type=number], input[type=text], select { width: 100%; background: var(--field); color: var(--ink);
     border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
@@ -137,6 +141,10 @@
             <button data-u="mmol/L">mmol/L</button>
           </span>
         </div>
+        <div class="legend" id="legend" style="display:none;">
+          <span><i style="background:var(--ok)"></i>from paste</span>
+          <span><i style="background:#d98324"></i>auto-detected — verify</span>
+        </div>
         <div class="fields" id="reqFields"></div>
         <details class="optional" id="optWrap">
           <summary>Optional predictors → enhanced models (HbA1c, UACR, ZIP/SDI)</summary>
@@ -162,19 +170,22 @@
       and paste above. Keep the <b>labels</b> unchanged; change the values freely.</p>
     <div class="row" style="margin:0 0 8px;">
       <span class="seg" id="spSeg">
-        <button data-v="A" class="sel">Auto-pull (recommended)</button>
-        <button data-v="B">All-manual</button>
+        <button data-v="C" class="sel">Full auto</button>
+        <button data-v="A">Labs only</button>
+        <button data-v="B">Manual</button>
       </span>
       <button class="link" id="copySp">Copy template</button>
       <span class="unit" id="copyMsg"></span>
     </div>
     <pre id="spText" style="background:var(--field);border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre;margin:0;"></pre>
     <p class="unit" style="margin:8px 0 0;">
-      <b>@AGE@ @SEX@ @BP@ @BMI@</b> are standard Epic SmartLinks (auto-fill). <b>@BRIEFLABS()@</b> dumps
-      recent labs — the calculator scrapes Total chol, HDL, HbA1c, eGFR (or computes it from creatinine),
-      and UACR out of it automatically. <b>***</b> are wildcards for the four Yes/No calls
-      (press <span class="kbd">F2</span> to jump between them). If a needed lab isn't in your
-      <span class="kbd">@BRIEFLABS()@</span> output, add its result SmartLink or just type it in the form.
+      <b>Full auto</b> pulls everything: <span class="kbd">@BRIEFLABS()@</span> for labs, and
+      <span class="kbd">@PROB@</span> / <span class="kbd">@MEDS@</span> / <span class="kbd">@SOCIALHX@</span>
+      so the calculator can also detect <b>diabetes, statin, antihypertensive, and smoking</b> from your
+      problem/med/social data — no typing. Anything auto-detected shows an <b style="color:#d98324">amber dot</b>
+      and a "verify" note, since a med/problem list can't always convey intent (e.g. a β-blocker not used for BP).
+      <b>Labs only</b> keeps the four Yes/No as <b>***</b> wildcards (press <span class="kbd">F2</span> to jump).
+      Blank or missing values just fall through to the editable form.
     </p>
   </div>
 
@@ -311,10 +322,17 @@
   }
 
   function setDots(found) {
+    var anyInfer = false;
     REQ.concat(OPT).forEach(function (f) {
       var d = document.getElementById("dot_" + f.key);
-      if (d) d.classList.toggle("on", !!found[f.key]);
+      if (!d) return;
+      var v = found[f.key];
+      d.classList.toggle("on", !!v);
+      var infer = v === "inferred" || v === "computed_from_cr";
+      d.classList.toggle("infer", infer);
+      if (infer) anyInfer = true;
     });
+    document.getElementById("legend").style.display = anyInfer ? "flex" : "none";
   }
 
   // ---- parse button ----
@@ -322,6 +340,7 @@
     var text = document.getElementById("paste").value;
     var res = APP.parseText(text);
     state.parsed = res.found;
+    state.inferred = res.inferred || {};
     state.computedEgfr = res.found.egfr === "computed_from_cr" ? res.values.egfr : null;
     Object.keys(res.values).forEach(function (k) {
       var el = document.getElementById("f_" + k);
@@ -419,6 +438,18 @@
 
     var msgs = "";
     var probs = out.problems.slice();
+    if (state.inferred) {
+      var LBL = { statin: "Statin", bp_tx: "Antihypertensive", dm: "Diabetes", smoking: "Smoking" };
+      var items = [];
+      Object.keys(state.inferred).forEach(function (k) {
+        var inf = state.inferred[k];
+        if (v[k] === inf.value) {
+          var desc = k === "smoking" ? ((inf.value ? "current — " : "not current — ") + inf.evidence) : inf.evidence;
+          items.push(LBL[k] + " (" + desc + ")");
+        }
+      });
+      if (items.length) probs.unshift("Auto-detected from meds / problems / social history — verify: " + items.join("; ") + ".");
+    }
     if (state.computedEgfr != null && Math.abs(v.egfr - state.computedEgfr) < 0.5)
       probs.push("eGFR was computed from serum creatinine (CKD-EPI 2021), not reported directly — verify.");
     if (age > 59) probs.push("30-year estimates are shown but were only validated for ages 30–59.");
@@ -469,6 +500,9 @@
 
   // ---- Epic SmartPhrase templates ----
   var SP = {
+    C: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
+        "ZIP (optional): ***", "Labs: @BRIEFLABS()@", "Problems: @PROB@", "Meds: @MEDS@",
+        "Social Hx: @SOCIALHX@"].join("\n"),
     A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
         "Diabetes: ***", "Current smoker: ***", "On antihypertensive: ***", "On statin: ***",
         "ZIP (optional): ***", "Labs: @BRIEFLABS()@"].join("\n"),
@@ -477,7 +511,7 @@
         "On antihypertensive: ***", "On statin: ***",
         "HbA1c (optional): ***", "UACR (optional): ***", "ZIP (optional): ***"].join("\n"),
   };
-  var spVer = "A";
+  var spVer = "C";
   function renderSp() { document.getElementById("spText").textContent = SP[spVer]; }
   document.getElementById("spSeg").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-v]"); if (!b) return;

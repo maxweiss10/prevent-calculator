@@ -1,24 +1,51 @@
 # Epic `.PREVENT` SmartPhrase
 
-The calculator does **not** need a rigid format. It scrapes the values out of whatever
-you paste — a `.PREVENT` SmartPhrase, a raw `@BRIEFLABS()@` lab dump, a results view, or
-free-text note. You don't have to type each value. Anything it can't find, you fill in the
-browser form (which is fully editable). So the SmartPhrase's job is just to **dump the data**,
-not to format it perfectly.
+The calculator doesn't need a rigid format — it scrapes the values out of whatever you paste.
+So the SmartPhrase's only job is to **dump the data**; you don't type it. Three versions,
+from most-automated to fully manual:
 
-Two versions:
+- **Full auto (recommended).** Pulls age/sex/BP/BMI, a labs block (`@BRIEFLABS()@`), and your
+  problem list, med list, and social history. The calculator scrapes the labs **and** detects
+  diabetes, statin use, antihypertensive use, and smoking status from those lists — nothing to type.
+- **Labs only.** Auto-pulls demographics + labs; you answer the four Yes/No questions as `***`
+  wildcards.
+- **Manual.** Every value a `***` wildcard; works in any build with zero setup.
 
-- **Version A — auto-pull with `@BRIEFLABS()@` (recommended).** SmartLinks pull age, sex,
-  BP, BMI, and a block of recent labs. You answer four Yes/No questions. The calculator
-  scrapes Total chol, HDL, HbA1c, eGFR (or computes it from creatinine), and UACR out of
-  the lab block.
-- **Version B — all-manual.** Every value a `***` wildcard. Works in any build, zero setup.
+Anything auto-*detected* from meds/problems/social history is flagged **amber ("verify")** in the
+app and listed with the evidence it matched — because a list can't always convey intent (e.g. a
+β-blocker or diuretic may not be for blood pressure). Always confirm those four.
 
 Press **F2** to jump between wildcards.
 
 ---
 
-## Version A — auto-pull (recommended)
+## Full auto (recommended)
+
+```
+PREVENT INPUTS
+Age: @AGE@
+Sex: @SEX@
+BP: @BP@
+BMI: @BMI@
+ZIP (optional): ***
+Labs: @BRIEFLABS()@
+Problems: @PROB@
+Meds: @MEDS@
+Social Hx: @SOCIALHX@
+```
+
+- `@AGE@ @SEX@ @BP@ @BMI@` — standard foundation SmartLinks (systolic taken from `@BP@`).
+- `@BRIEFLABS()@` — recent labs; the app finds Total chol, HDL, HbA1c, eGFR (or computes it from
+  creatinine), and UACR anywhere in it.
+- `@PROB@` / `@MEDS@` / `@SOCIALHX@` — problem list / medication list / social history. The app
+  detects **diabetes** (from problems), **statin** and **antihypertensive** (from meds, ignoring
+  allergy/discontinued lines), and **smoking status** (from social hx). Detected values are marked
+  "verify."
+- Token names vary a little by build: if `@PROB@`, `@MEDS@`, or `@SOCIALHX@` don't resolve, use your
+  build's equivalents (e.g. `@PROBLEMLIST@`, `@CURMEDS@`/`@OUTMEDS@`, `@SMOKINGSTATUS@`). Whatever
+  they print, the calculator scrapes it.
+
+## Labs only
 
 ```
 PREVENT INPUTS
@@ -34,20 +61,7 @@ ZIP (optional): ***
 Labs: @BRIEFLABS()@
 ```
 
-- `@AGE@ @SEX@ @BP@ @BMI@` are standard foundation SmartLinks and should resolve at UCSF.
-  (The calculator takes the systolic number from `@BP@`'s "148/86".)
-- `@BRIEFLABS()@` prints a compact list of recent labs. The calculator finds the
-  PREVENT-relevant ones anywhere in that text — abbreviations and formats like
-  `Chol 210`, `HDL 39`, `A1C 7.4`, `eGFR 90`, `Cr 0.9`, `Microalbumin/Creatinine Ratio 512`
-  all work. It ignores the labs it doesn't need (Na, K, glucose, CBC…).
-- If your `@BRIEFLABS()@` doesn't include a lab you want (some builds limit it to a chem/CBC
-  panel), either pass parameters / add that component's result SmartLink, or just type the
-  one value into the form. **eGFR is optional in the dump** — if only creatinine is present,
-  the calculator computes eGFR with the CKD-EPI 2021 (race-free) equation and flags that it did.
-- The four Yes/No lines are clinical judgments. The calculator understands `Yes`/`No` and
-  also `Never`/`Former` (→ not a current smoker), `T2DM`, `active`, `denies`, etc.
-
-## Version B — all-manual (works everywhere, no setup)
+## Manual (works everywhere, no setup)
 
 ```
 PREVENT INPUTS
@@ -71,35 +85,30 @@ ZIP (optional): ***
 
 ## Create the SmartPhrase in Epic
 
-1. Open **SmartPhrase Manager** (search "SmartPhrase Manager", or **Epic → Tools →
-   SmartPhrase Manager**).
-2. **New SmartPhrase**, name it `PREVENT` (so you invoke it with `.prevent`).
-3. Paste one of the blocks above. The `@...@` tokens are recognized as SmartLinks
-   automatically; leave the `***` wildcards as-is.
+1. **SmartPhrase Manager** (search it, or **Epic → Tools → SmartPhrase Manager**).
+2. **New SmartPhrase**, name it `PREVENT` (invoke with `.prevent`).
+3. Paste one of the blocks. `@...@` become SmartLinks automatically; leave `***` wildcards as-is.
 4. **Save.**
-5. In a note: type `.prevent`, let the SmartLinks fill, press **F2** through the four
-   Yes/No wildcards, then select the block, copy, and paste into the calculator.
+5. In a note: `.prevent`, let it fill, **F2** through any wildcards, select-all, copy, paste into
+   the calculator.
 
-> You don't even need the SmartPhrase to try it: paste any Epic labs view or note and the
-> calculator will scrape what it can. The SmartPhrase just makes it one keystroke.
+> You don't even need the SmartPhrase to try it — paste any labs view or note and it scrapes what
+> it can. The SmartPhrase just makes it one keystroke.
 
 ---
 
-## What each value is used for
+## What the app detects, and how reliably
 
-| Field | Source in Version A | Notes |
-|-------|---------------------|-------|
-| Age | `@AGE@` | 30–79 (30-yr risk validated to 59) |
-| Sex | `@SEX@` | sex-specific equations |
-| Systolic BP | `@BP@` (systolic taken) | 90–180 mmHg |
-| BMI | `@BMI@` | 18.5–39.9 kg/m² |
-| Total cholesterol | `@BRIEFLABS()@` | mg/dL 130–320 (mmol/L toggle in app) |
-| HDL | `@BRIEFLABS()@` | non-HDL derived as Total − HDL |
-| eGFR | `@BRIEFLABS()@` or computed from creatinine | CKD-EPI 2021; 15–140 |
-| HbA1c *(optional)* | `@BRIEFLABS()@` | % 4.5–15 → HbA1c/full model |
-| UACR *(optional)* | `@BRIEFLABS()@` | mg/g 0.1–25000 → UACR/full model |
-| Diabetes / Smoker / Antihypertensive / Statin | Yes/No wildcards | current smoking only |
-| ZIP *(optional)* | wildcard | → Social Deprivation Index decile → SDI/full model |
+| Field | Source | Reliability |
+|-------|--------|-------------|
+| Age, Sex, SBP, BMI | SmartLinks | discrete — high |
+| Total chol, HDL, HbA1c, eGFR, UACR | labs block | high (eGFR computed from creatinine if absent, flagged) |
+| **Smoking** | social hx | high (uses the discrete status: Never / Former / Current …) |
+| **Statin** | med list | high — matched by statin drug names (nystatin excluded) |
+| **Antihypertensive** | med list | medium — β-blockers/diuretics may be for other indications ⇒ **verify** |
+| **Diabetes** | problem list | medium — excludes pre-diabetes, gestational, family hx, diabetes insipidus ⇒ **verify** |
+| ZIP → SDI decile | wildcard | optional |
 
-Optional values that are blank or out of range are ignored (you get the base model).
-Provide any of HbA1c / UACR / ZIP to also get the corresponding enhanced model.
+Out-of-range or blank optional values (HbA1c/UACR/ZIP) are ignored → base model. Provide any of
+them to also get the corresponding enhanced model. Every value lands in an editable form, so fix
+anything before reading the result.

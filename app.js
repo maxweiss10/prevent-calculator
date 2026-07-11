@@ -115,7 +115,8 @@
       }
     }
     scanClinical(text, out, found); // scrape labs/vitals from unstructured text
-    return { values: out, found: found };
+    var inferred = inferFlags(text, out, found); // meds/problems/social hx → Yes/No flags
+    return { values: out, found: found, inferred: inferred };
   }
 
   function interpret(field, rest) {
@@ -214,6 +215,74 @@
     }
   }
 
+  // ---- Infer Yes/No flags from meds / problems / social history ----------
+  // Positive-evidence only: sets a flag TRUE (or smoking FALSE for never/
+  // former) when detected; NEVER assumes "No" from absence. Everything set
+  // here is marked "inferred" so the UI can prompt verification and show the
+  // matched evidence (a med/problem list can't always convey intent).
+  var STATIN_RE = /\b(?:atorva|rosuva|simva|prava|lova|pitava|fluva)statin\b|\b(?:lipitor|crestor|zocor|pravachol|livalo|lescol|altoprev|ezallor|vytorin|caduet|roszet|simcor)\b/i;
+  var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine)\b/i;
+  // Lines that mean a drug is NOT actually being taken.
+  var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|held\b|not taking|declined/i;
+
+  function detectDrug(text, re) {
+    var lines = text.split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      if (DRUG_SKIP_LINE.test(lines[i])) continue;
+      var m = lines[i].match(re);
+      if (m) return m[0].toLowerCase();
+    }
+    return null;
+  }
+
+  var DM_NEG = /\b(?:no|denies|denied|without|negative for|rule[d]? out|r\/o|family (?:history|hx)|fhx|gestational|borderline|impaired|screen\w*|risk of)\b[^.\n]{0,18}$/;
+  function detectDiabetes(text) {
+    // spelled out: "...diabet(es/ic)..."
+    var re = /\bdiabet\w*/gi, m;
+    while ((m = re.exec(text)) !== null) {
+      var start = m.index, word = m[0];
+      var ctx = text.slice(start, start + 44).toLowerCase();
+      if (/^diabet\w*\s*insipidus/.test(ctx)) continue;             // DI is not DM
+      if (/^[:*]/.test(text.slice(start + word.length).replace(/^\s+/, ""))) continue; // "Diabetes:" label
+      var pre = text.slice(Math.max(0, start - 26), start).toLowerCase();
+      if (/pre-?\s*$/.test(pre)) continue;                          // pre-diabetes
+      if (DM_NEG.test(pre)) continue;
+      var scope = pre + " " + ctx;
+      if (/type\s*2|type\s*ii\b|t2dm|dm\s*2/.test(scope)) return "Type 2 diabetes";
+      if (/type\s*1|type\s*i\b|t1dm|dm\s*1/.test(scope)) return "Type 1 diabetes";
+      if (/diabetic\s*(?:nephropathy|retinopathy|neuropathy|ketoacidosis|foot|ulcer)/.test(ctx)) return (ctx.match(/diabetic\s*\w+/) || ["diabetic"])[0];
+      if (/mellitus/.test(ctx)) return "Diabetes mellitus";
+      return "Diabetes";
+    }
+    // abbreviations: T2DM, DM2, "type 2 DM"
+    var a = text.match(/\b(?:type\s*[12]\s*dm|dm\s*(?:type\s*)?[12]|t[12]dm)\b/i);
+    if (a && !DM_NEG.test(text.slice(Math.max(0, a.index - 26), a.index).toLowerCase()))
+      return /1/.test(a[0]) ? "Type 1 diabetes" : "Type 2 diabetes";
+    // standalone uppercase DM (clinical shorthand)
+    var d = text.match(/\bDM\b/);
+    if (d && text.charAt(d.index + 2) !== ":" &&
+        !DM_NEG.test(text.slice(Math.max(0, d.index - 26), d.index).toLowerCase()))
+      return "Diabetes (DM)";
+    return null;
+  }
+
+  function detectSmoking(text) {
+    var cur = text.match(/\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b)/i);
+    if (cur) return { value: true, evidence: cur[0].trim() };
+    var non = text.match(/\b(?:never\s*smok\w*|former\s*smoker|ex-?\s*smoker|non-?\s*smoker|smoking\s+status\s*:?\s*(?:never|former|quit)|quit\s+smoking|former\s+tobacco|denies\s+tobacco|no\s+tobacco)\b/i);
+    if (non) return { value: false, evidence: non[0].trim() };
+    return null;
+  }
+
+  function inferFlags(text, out, found) {
+    var inferred = {};
+    if (found.statin === undefined) { var s = detectDrug(text, STATIN_RE); if (s) { out.statin = true; found.statin = "inferred"; inferred.statin = { value: true, evidence: s }; } }
+    if (found.bp_tx === undefined) { var h = detectDrug(text, ANTIHTN_RE); if (h) { out.bp_tx = true; found.bp_tx = "inferred"; inferred.bp_tx = { value: true, evidence: h }; } }
+    if (found.dm === undefined) { var d = detectDiabetes(text); if (d) { out.dm = true; found.dm = "inferred"; inferred.dm = { value: true, evidence: d }; } }
+    if (found.smoking === undefined) { var sm = detectSmoking(text); if (sm) { out.smoking = sm.value; found.smoking = "inferred"; inferred.smoking = sm; } }
+    return inferred;
+  }
+
   // ---- Model selection (mirrors preventr::select_model) ------------------
   function usable(v, lo, hi) { return v !== null && v !== undefined && !isNaN(v) && v >= lo && v <= hi; }
 
@@ -251,7 +320,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, detectSmoking };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();

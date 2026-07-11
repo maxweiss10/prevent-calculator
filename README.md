@@ -14,6 +14,11 @@ get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD an
 - **Scrapes unstructured text.** You don't have to type each value. It pulls labs and
   vitals out of messy Epic output (e.g. `Chol 210, HDL 39`, `A1C 7.4`, `eGFR 90`,
   `148/86`), and computes eGFR from serum creatinine (CKD-EPI 2021) when eGFR isn't given.
+- **Detects the Yes/No flags too.** From a pasted problem list / med list / social history
+  (`@PROB@` / `@MEDS@` / `@SOCIALHX@`) it detects diabetes, statin use, antihypertensive
+  use, and smoking status — positive-evidence only, with guards (excludes pre-diabetes,
+  diabetes insipidus, family history, nystatin, allergy/discontinued lines) — and flags each
+  as "auto-detected, verify" with the matched evidence.
 - **Editable form.** Pasting pre-fills the form; you can correct anything before
   computing. Values out of the validated ranges are flagged; out-of-range optional
   predictors are ignored (falling back to the base model).
