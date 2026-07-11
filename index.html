@@ -208,9 +208,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=3"></script>
-<script src="prevent.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="coeffs.js?v=4"></script>
+<script src="prevent.js?v=4"></script>
+<script src="app.js?v=4"></script>
 <script>
 (function () {
   "use strict";
@@ -506,11 +506,11 @@
   // ---- Epic SmartPhrase templates ----
   var SP = {
     C: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
-        "ZIP (optional): ***", "Labs: @BRIEFLABS()@", "Problems: @PROB@", "Meds: @MEDS@",
+        "City/State/ZIP: @CTYSTZIP@", "Labs: @BRIEFLABS()@", "Problems: @PROB@", "Meds: @MEDS@",
         "Social Hx: @SOCIALHX@"].join("\n"),
     A: ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @BP@", "BMI: @BMI@",
         "Diabetes: ***", "Current smoker: ***", "On antihypertensive: ***", "On statin: ***",
-        "ZIP (optional): ***", "Labs: @BRIEFLABS()@"].join("\n"),
+        "City/State/ZIP: @CTYSTZIP@", "Labs: @BRIEFLABS()@"].join("\n"),
     B: ["PREVENT INPUTS", "Age: ***", "Sex: ***", "SBP: ***", "Total cholesterol: ***", "HDL: ***",
         "Diabetes: ***", "Current smoker: ***", "BMI: ***", "eGFR: ***",
         "On antihypertensive: ***", "On statin: ***",

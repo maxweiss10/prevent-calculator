@@ -27,7 +27,7 @@ Age: @AGE@
 Sex: @SEX@
 BP: @BP@
 BMI: @BMI@
-ZIP (optional): ***
+City/State/ZIP: @CTYSTZIP@
 Labs: @BRIEFLABS()@
 Problems: @PROB@
 Meds: @MEDS@
@@ -57,7 +57,7 @@ Diabetes: ***
 Current smoker: ***
 On antihypertensive: ***
 On statin: ***
-ZIP (optional): ***
+City/State/ZIP: @CTYSTZIP@
 Labs: @BRIEFLABS()@
 ```
 
@@ -107,7 +107,7 @@ ZIP (optional): ***
 | **Statin** | med list | high — matched by statin drug names (nystatin excluded) |
 | **Antihypertensive** | med list | medium — β-blockers/diuretics may be for other indications ⇒ **verify** |
 | **Diabetes** | problem list | medium — excludes pre-diabetes, gestational, family hx, diabetes insipidus ⇒ **verify** |
-| ZIP → SDI decile | wildcard | optional |
+| ZIP → SDI decile | `@CTYSTZIP@` (city/state/zip) | optional; app pulls the 5-digit ZIP. Blank if not on file → base model |
 
 Out-of-range or blank optional values (HbA1c/UACR/ZIP) are ignored → base model. Provide any of
 them to also get the corresponding enhanced model. Every value lands in an editable form, so fix

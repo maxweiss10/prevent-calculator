@@ -199,6 +199,19 @@
     return Math.round(egfr); // preventr rounds eGFR to a whole number
   }
 
+  // ZIP from a city/state/zip string (e.g. @CTYSTZIP@ → "San Francisco, CA 94110").
+  // Requires a valid 2-letter US state before the 5 digits so it can't grab a lab
+  // value, MRN, or date.
+  var US_STATES = new Set(("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD " +
+    "MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY").split(" "));
+  function scanZip(text) {
+    var re = /\b([A-Za-z]{2})\.?\s+(\d{5})(?:-\d{4})?(?!\d)/g, m;
+    while ((m = re.exec(text)) !== null) {
+      if (US_STATES.has(m[1].toUpperCase())) return m[2];
+    }
+    return null;
+  }
+
   function scanClinical(text, out, found) {
     function tryField(key, namePat, opts) {
       if (found[key] !== undefined) return;
@@ -206,6 +219,7 @@
       if (v !== null) { out[key] = v; found[key] = "scanned"; }
     }
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
+    if (found.zip === undefined) { var z = scanZip(text); if (z) { out.zip = z; found.zip = "scanned"; } }
     tryField("bmi", "bmi", { min: 10, max: 80 });
     tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, commaCut: true, min: 40, max: 500 });
     tryField("hdl_c", "hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?", { badWords: ["non"], noSlashBefore: true, commaCut: true, min: 5, max: 150 });
@@ -327,7 +341,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, detectSmoking };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();
