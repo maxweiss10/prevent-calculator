@@ -71,6 +71,17 @@
   input.conflict, select.conflict { border-color: var(--high) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 20%, transparent); }
   .panelmsg.conflict { background: color-mix(in srgb, var(--high) 12%, var(--panel)); color: var(--ink); border: 1.5px solid var(--high); }
   .panelmsg.conflict b { color: var(--high); }
+  .srcmap { white-space: pre-wrap; word-break: break-word; font: 12.5px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 240px; overflow: auto; }
+  .hl { border-radius: 4px; padding: 0 2px; }
+  .hl-c { background: color-mix(in srgb, var(--ok) 24%, transparent); }
+  .hl-i { background: color-mix(in srgb, #d98324 30%, transparent); }
+  .hl-x { background: color-mix(in srgb, var(--high) 26%, transparent); outline: 1px solid var(--high); }
+  .hl-miss { background: color-mix(in srgb, var(--high) 15%, transparent); border-bottom: 2px dashed var(--high); font-weight: 700; }
+  .hl-dia { opacity: .5; }
+  .srclegend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .srclegend span { display: inline-flex; align-items: center; gap: 5px; }
+  .srclegend i { width: 20px; height: 12px; border-radius: 3px; display: inline-block; }
   .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin: 0 0 10px; }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
@@ -135,6 +146,18 @@
           <button class="primary" id="parseBtn">Parse pasted values</button>
           <button class="link" id="exampleBtn">Load example</button>
           <button class="link" id="clearBtn">Clear</button>
+        </div>
+      </div>
+
+      <div class="card" id="sourceCard" style="margin-top:16px; display:none;">
+        <h2>What the parser read</h2>
+        <div id="missSummary" class="panelmsg" style="display:none; margin-top:0; margin-bottom:10px;"></div>
+        <div class="srcmap" id="sourceMap"></div>
+        <div class="srclegend">
+          <span><i style="background:color-mix(in srgb,var(--ok) 24%,transparent)"></i>used</span>
+          <span><i style="background:color-mix(in srgb,#d98324 30%,transparent)"></i>auto-detected</span>
+          <span><i style="background:color-mix(in srgb,var(--high) 26%,transparent);outline:1px solid var(--high)"></i>parsers disagree</span>
+          <span><i style="background:color-mix(in srgb,var(--high) 15%,transparent);border-bottom:2px dashed var(--high)"></i>not captured — check</span>
         </div>
       </div>
 
@@ -213,6 +236,12 @@
         label-anchoring) and <b>cross-checks the two</b>. When they disagree on a value — including when a stated
         eGFR contradicts the serum creatinine — the field is flagged in <b style="color:var(--high)">red</b> as a
         likely parsing error to double-check. The form keeps the primary parser's value.</li>
+      <li><b>shows its work</b> (“What the parser read”): the pasted text is echoed back with every value it used
+        highlighted and color-coded to a field — so a number it <i>missed</i> stands out (a cholesterol in mmol/L, a
+        lab it couldn’t label) and gets flagged “not captured — check.”</li>
+      <li><b>quantifies what’s at stake</b>: for a disagreement or an auto-detected flag, it recomputes 10-year ASCVD
+        both ways (e.g. “eGFR 92 → 13.7% vs eGFR 24 → 21.6%”), so you know whether an uncertain value actually
+        changes management or is safe to move past.</li>
     </ul>
     <p>Values read from the paste show a <b style="color:var(--ok)">green</b> dot; auto-detected ones show an
       <b style="color:#d98324">amber</b> dot and a “verify” note. Nothing has to be perfect in Epic — every field
@@ -236,9 +265,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=9"></script>
-<script src="prevent.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="coeffs.js?v=10"></script>
+<script src="prevent.js?v=10"></script>
+<script src="app.js?v=10"></script>
 <script>
 (function () {
   "use strict";
@@ -392,7 +421,44 @@
       else el.value = val;
     });
     setDots(res.found);
+    renderSourceMap(text, res);
     onFieldInput();
+  }
+
+  // ---- "show your work" source highlighting ----
+  function escHtml(s) { return s.replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  function renderSourceMap(text, res) {
+    var card = document.getElementById("sourceCard");
+    if (!text || !text.trim()) { card.style.display = "none"; return; }
+    var spans = APP.annotateSource(text, res).slice().sort(function (a, b) { return a.start - b.start; });
+    var FL = {}; REQ.concat(OPT).forEach(function (f) { FL[f.key] = f.label; });
+    var conflicts = res.conflicts || {}, found = res.found || {};
+    var html = "", pos = 0, misses = 0;
+    spans.forEach(function (s) {
+      if (s.start < pos) return; // overlap guard
+      html += escHtml(text.slice(pos, s.start));
+      var frag = escHtml(text.slice(s.start, s.end));
+      if (s.field === "_dia") { html += '<span class="hl hl-dia" title="diastolic (part of BP)">' + frag + "</span>"; }
+      else if (s.status === "consumed") {
+        var fkey = s.field === "egfr_cr" ? "egfr" : s.field;
+        var cls = conflicts[fkey] === "conflict" ? "hl-x" : ((found[fkey] === "inferred" || found[fkey] === "computed_from_cr") ? "hl-i" : "hl-c");
+        var lbl = (FL[fkey] || fkey) + (s.field === "egfr_cr" ? " (via serum creatinine)" : "");
+        html += '<span class="hl ' + cls + '" title="→ ' + lbl + '">' + frag + "</span>";
+      } else if (s.status === "missed") {
+        misses++;
+        html += '<span class="hl hl-miss" title="looks like ' + (FL[s.field] || s.field) + ' — not captured; enter manually if correct">' + frag + "</span>";
+      } else { html += frag; }
+      pos = s.end;
+    });
+    html += escHtml(text.slice(pos));
+    document.getElementById("sourceMap").innerHTML = html;
+    var ms = document.getElementById("missSummary");
+    if (misses) {
+      ms.style.display = "block"; ms.className = "panelmsg conflict";
+      ms.innerHTML = "<b>⚠ " + misses + " value" + (misses > 1 ? "s" : "") + " look like input" + (misses > 1 ? "s" : "") +
+        " but " + (misses > 1 ? "were" : "was") + " not captured</b> — highlighted below. Enter " + (misses > 1 ? "them" : "it") + " into the form if correct.";
+    } else { ms.style.display = "none"; }
+    card.style.display = "block";
   }
 
   function onFieldInput(e) {
@@ -463,6 +529,14 @@
       '<span>Stroke <b>' + pct(primary.stroke) + '</b></span></div></div>';
   }
 
+  // Sensitivity: 10-yr ASCVD under a hypothetical value — quantifies whether a
+  // parsing uncertainty actually changes the decision.
+  function ascvd10For(vv) {
+    try { var o = APP.computeAll(vv); var p = o.enhanced || o.base; return p.r10.ascvd; }
+    catch (e) { return null; }
+  }
+  function withField(vv, k, val) { var c = Object.assign({}, vv); c[k] = val; return c; }
+
   function compute() {
     var box = document.getElementById("results");
     var v = state.values;
@@ -497,7 +571,11 @@
         var inf = state.inferred[k];
         if (v[k] === inf.value) {
           var yn = k === "smoking" ? (inf.value ? "current smoker" : "not a current smoker") : (inf.value ? "Yes" : "No");
-          items.push(LBL[k] + " — " + yn + " (" + inf.evidence + ")");
+          var impact = "", a1 = ascvd10For(v), a2 = ascvd10For(withField(v, k, !inf.value));
+          if (a1 != null && a2 != null && Math.abs(a2 - a1) * 100 >= 0.5)
+            impact = " — if actually " + (inf.value ? (k === "smoking" ? "not a smoker" : "No") : (k === "smoking" ? "a smoker" : "Yes")) +
+              ", 10-yr ASCVD " + pct(a1) + "→" + pct(a2);
+          items.push(LBL[k] + " — " + yn + " (" + inf.evidence + ")" + impact);
         }
       });
       if (items.length) probs.unshift("Auto-detected — please verify each: " + items.join("; ") + ".");
@@ -520,18 +598,29 @@
     if (state.conflicts) {
       var FL = {}; REQ.concat(OPT).forEach(function (f) { FL[f.key] = f.label; });
       var citems = [];
+      var baseAscvd = ascvd10For(v);
       Object.keys(state.conflicts).forEach(function (k) {
         if (state.conflicts[k] !== "conflict") return;
         var s = state.second || {};
-        var sv;
+        var sv, altNum;
         if (k === "egfr") {
           // show whichever independent reading actually disagrees with the primary:
           // a differing stated eGFR, else the creatinine-implied eGFR.
-          if (s.egfr != null && Math.abs(v.egfr - s.egfr) > 2) sv = s.egfr;
-          else if (s.egfr_cr != null) sv = s.egfr_cr + " (implied by the serum creatinine)";
-          else sv = s.egfr;
-        } else { sv = s[k]; }
-        citems.push("<b>" + (FL[k] || k) + "</b>: primary read <b>" + v[k] + "</b>, independent check read <b>" + (sv == null ? "a different value" : sv) + "</b>");
+          if (s.egfr != null && Math.abs(v.egfr - s.egfr) > 2) { sv = s.egfr; altNum = s.egfr; }
+          else if (s.egfr_cr != null) { sv = s.egfr_cr + " (implied by the serum creatinine)"; altNum = s.egfr_cr; }
+          else { sv = s.egfr; altNum = s.egfr; }
+        } else { sv = s[k]; altNum = s[k]; }
+        var item = "<b>" + (FL[k] || k) + "</b>: primary read <b>" + v[k] + "</b>, independent check read <b>" + (sv == null ? "a different value" : sv) + "</b>";
+        // Sensitivity: what does resolving this disagreement do to the risk?
+        if (altNum != null && baseAscvd != null) {
+          var alt = ascvd10For(withField(v, k, altNum));
+          if (alt != null) {
+            var d = Math.abs(alt - baseAscvd) * 100;
+            item += "<br><span style=\"font-size:12px\">10-yr ASCVD <b>" + pct(baseAscvd) + "</b> vs <b>" + pct(alt) + "</b> — " +
+              (d >= 1 ? "this <b>changes the estimate</b>, resolve it" : "minimal impact, but verify") + "</span>";
+          }
+        }
+        citems.push(item);
       });
       if (citems.length)
         conflictMsg = '<div class="panelmsg conflict"><b>⚠ Parser conflict — verify before trusting this result.</b> ' +
@@ -557,6 +646,8 @@
   document.getElementById("clearBtn").addEventListener("click", function () {
     document.getElementById("paste").value = "";
     REQ.concat(OPT).forEach(function (f) { document.getElementById("f_" + f.key).value = ""; });
+    state.conflicts = {}; state.inferred = {};
+    document.getElementById("sourceCard").style.display = "none";
     setDots({}); onFieldInput();
   });
   var EXAMPLE = ["PREVENT INPUTS", "Age: 58", "Sex: Female", "SBP: 140", "Total cholesterol: 213",

@@ -45,6 +45,19 @@ flag is meaningful. Measured on the 5×1000-case harness: **98.7% of fields acti
 agree, ~1.3% abstain (unconfirmed), 0.00% false alarms.** It catches, e.g., a stated eGFR
 that is contradicted by the serum creatinine (stale value pasted next to a current Cr).
 
+## Show-your-work + sensitivity (UI robustness)
+
+Two more layers, on top of the cross-check:
+
+- **`annotateSource(text, res)`** classifies every number in the paste as *consumed*
+  (→ which field), a *potential miss* (looks like a PREVENT field whose form value is
+  still empty — e.g. an mmol/L cholesterol the parser rejected), or *neutral* (dates,
+  doses, LDL/VLDL). The UI echoes the paste back with these highlighted, so **silent
+  misses become visible**. Unit-tested in `audit-test.js`.
+- **Sensitivity** (UI, `index.html`): for a conflict or an auto-detected flag, 10-year
+  ASCVD is recomputed both ways ("eGFR 92 → 13.7% vs eGFR 24 → 21.6%") so the clinician
+  knows whether an uncertain value actually changes management.
+
 ## Current status
 
 - `edge-generator.js`: **100%** field-level recovery across 6 seeds × 1000 cases (~69k assertions).

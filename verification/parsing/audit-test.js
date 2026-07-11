@@ -121,5 +121,22 @@ var ext2 = APP.extractNum("85");
 check("extractNum('85') value", ext2.value, 85);
 check("extractNum('85') threshold", ext2.threshold, null);
 
+// 13. annotateSource: consumed vs missed vs neutral
+function annStatus(text, frag) {
+  var res = APP.parseText(text);
+  var spans = APP.annotateSource(text, res);
+  for (var i = 0; i < spans.length; i++) if (text.slice(spans[i].start, spans[i].end) === frag) return { status: spans[i].status, field: spans[i].field };
+  return null;
+}
+var cleanTxt = "Age: 58\nSex: Female\nTotal cholesterol: 213\nHDL: 52\neGFR: 68\nLDL: 130\nTriglycerides: 150";
+check("annotate: total_c 213 consumed", annStatus(cleanTxt, "213"), { status: "consumed", field: "total_c" });
+check("annotate: hdl 52 consumed", annStatus(cleanTxt, "52"), { status: "consumed", field: "hdl_c" });
+check("annotate: LDL 130 neutral (not a PREVENT field)", annStatus(cleanTxt, "130").status, "neutral");
+check("annotate: Triglycerides 150 NOT flagged as hba1c miss", annStatus(cleanTxt, "150").status, "neutral");
+// mmol/L cholesterol rejected by parser -> flagged as a miss
+var mmolTxt = "Age: 58\nSex: Female\nTotal cholesterol: 5.4 mmol/L\nHDL: 1.3 mmol/L\neGFR: 68";
+check("annotate: mmol total_c 5.4 flagged missed", annStatus(mmolTxt, "5.4"), { status: "missed", field: "total_c" });
+check("annotate: mmol hdl 1.3 flagged missed", annStatus(mmolTxt, "1.3"), { status: "missed", field: "hdl_c" });
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

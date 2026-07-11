@@ -552,17 +552,97 @@
     // keeping indices aligned with the original text for context slicing.
     var masked = text.replace(/\([^)]*\)/g, function (s) { return s.replace(/[^\n]/g, " "); })
                      .replace(/\[[^\]]*\]/g, function (s) { return s.replace(/[^\n]/g, " "); });
-    var out = [], re = /[<>≤≥]?\s*\d[\d,]*(?:\.\d+)?/g, m;
+    var out = [], re = /([<>≤≥]?\s*)(\d[\d,]*(?:\.\d+)?)/g, m;
     while ((m = re.exec(masked)) !== null) {
+      var numStart = m.index + m[1].length, numEnd = numStart + m[2].length;
       var lineStart = text.lastIndexOf("\n", m.index - 1) + 1;
       out.push({
-        val: parseFloat(m[0].replace(/[<>≤≥\s,]/g, "")),   // strip comma thousands
+        val: parseFloat(m[2].replace(/,/g, "")),                  // strip comma thousands
         beforeLine: text.slice(lineStart, m.index).toLowerCase(), // SAME-LINE context only
-        after: text.slice(m.index + m[0].length, m.index + m[0].length + 12).toLowerCase(),
-        idx: m.index,
+        after: text.slice(numEnd, numEnd + 12).toLowerCase(),
+        idx: m.index, numStart: numStart, numEnd: numEnd,
       });
     }
     return out;
+  }
+
+  // ---- Source annotation ("show your work" highlighting) ----------------
+  // Classify every number in the paste as: consumed (→ which field), a potential
+  // MISS (looks like a PREVENT field whose form value is still empty), or neutral
+  // (dates, doses, MRNs, non-PREVENT labs like LDL). Returns spans for the UI to
+  // highlight, so silent misses become visible to the human.
+  function annotateSource(text, res) {
+    text = normalizeText(text);
+    var values = res.values || {}, found = res.found || {};
+    var nums = harvestNumbers(text);
+    var consumed = {};
+    var LABELRE = {
+      age: /age/, sbp: /\bbp\b|pressure|systolic/, total_c: /chol|\btc\b/, hdl_c: /hdl|high[\s-]?density/,
+      bmi: /bmi|body\s*mass/, egfr: /gfr/, hba1c: /a1c|glyc/, uacr: /acr|album|micro/,
+    };
+    var TOL = { age: 0.5, sbp: 0.5, total_c: 0.5, hdl_c: 0.5, bmi: 0.05, egfr: 0.5, hba1c: 0.05, uacr: 2 };
+
+    // BP: consume the systolic (= values.sbp) and its paired diastolic.
+    if (values.sbp != null) {
+      for (var i = 0; i < nums.length; i++) {
+        if (consumed[i] != null || Math.abs(nums[i].val - values.sbp) >= 0.5) continue;
+        var aft = text.slice(nums[i].numEnd, nums[i].numEnd + 6);
+        if (LABELRE.sbp.test(nums[i].beforeLine) || /^\s*\/\s*\d/.test(aft)) {
+          consumed[i] = "sbp";
+          if (i + 1 < nums.length && /^\s*\/\s*$/.test(text.slice(nums[i].numEnd, nums[i + 1].numStart))) consumed[i + 1] = "_dia";
+          break;
+        }
+      }
+    }
+    // Other numeric fields: value match, preferring a candidate whose line carries the label.
+    ["age", "total_c", "hdl_c", "bmi", "egfr", "hba1c", "uacr"].forEach(function (f) {
+      if (values[f] == null) return;
+      if (f === "egfr" && found.egfr === "computed_from_cr") return;
+      var tol = TOL[f] || 0.5, best = -1;
+      for (var i = 0; i < nums.length; i++) {
+        if (consumed[i] == null && Math.abs(nums[i].val - values[f]) <= tol && LABELRE[f].test(nums[i].beforeLine)) { best = i; break; }
+      }
+      if (best < 0) for (var j = 0; j < nums.length; j++) {
+        if (consumed[j] == null && Math.abs(nums[j].val - values[f]) <= tol) { best = j; break; }
+      }
+      if (best >= 0) consumed[best] = f;
+    });
+    // eGFR computed from creatinine: the consumed number is the creatinine.
+    if (found.egfr === "computed_from_cr") {
+      for (var i = 0; i < nums.length; i++) {
+        if (consumed[i] != null) continue;
+        var bl = nums[i].beforeLine;
+        if (/alb|ratio|urine|clearance|kinase/.test(bl)) continue;
+        if (/creat|scr|(?:^|[^a-z\/])cr\b/.test(bl)) { consumed[i] = "egfr_cr"; break; }
+      }
+    }
+
+    // A number is a potential MISS only if it looks like a specific PREVENT field
+    // whose form value is still empty — high signal, low noise (LDL/VLDL/date/dose
+    // stay neutral).
+    var MISS_RULES = [
+      { f: "total_c", re: /total\s*chol|cholesterol|\bchol\b|\btc\b/, excl: /hdl|ldl|vldl|non|ratio/ },
+      { f: "hdl_c", re: /hdl|high[\s-]?density/, excl: /non[\s-]?hdl|ldl/ },
+      { f: "egfr", re: /gfr/, excl: /clearance/ },
+      { f: "egfr", re: /creatinine|creat\b|scr|(?:^|[^a-z\/])cr\b/, excl: /alb|ratio|urine|clearance|kinase/ },
+      { f: "hba1c", re: /a1c|glyc\w*\s*h[ae]mo/, excl: /trig/ },   // NOT "triglycerides"
+      { f: "bmi", re: /bmi|body\s*mass/, excl: /never^/ },
+      { f: "uacr", re: /uacr|\bacr\b|microalb|album\w*\s*\/?\s*creat/, excl: /never^/ },
+      { f: "sbp", re: /\bbp\b|blood\s*pressure|systolic/, excl: /never^/ },
+    ];
+    var spans = nums.map(function (n, i) {
+      var status = consumed[i] != null ? "consumed" : "neutral", field = consumed[i] || null;
+      if (status === "neutral") {
+        for (var r = 0; r < MISS_RULES.length; r++) {
+          var rule = MISS_RULES[r];
+          if (rule.re.test(n.beforeLine) && !rule.excl.test(n.beforeLine) && (values[rule.f] == null)) {
+            status = "missed"; field = rule.f; break;
+          }
+        }
+      }
+      return { start: n.numStart, end: n.numEnd, val: n.val, status: status, field: field };
+    });
+    return spans;
   }
 
   function parseIndependent(text) {
@@ -692,7 +772,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();
