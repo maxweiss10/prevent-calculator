@@ -7,9 +7,12 @@ get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD an
 
 **Live app:** https://maxweiss10.github.io/prevent-calculator/
 
-- **No data leaves your browser.** All computation is client-side. The only network
-  request is loading the static ZIP→SDI lookup file from this same site.
-- **Base + enhanced models.** Add HbA1c, UACR, and/or a ZIP code to also get the
+- **No data leaves your browser, and nothing is even fetched.** All computation is
+  client-side with zero network requests after the page loads.
+- **ZIP code is not accepted.** A 5-digit ZIP is a HIPAA identifier (PHI), so the app
+  neither takes nor looks up ZIP. Enter an SDI decile (1–10, not identifying) directly
+  for the SDI/full model.
+- **Base + enhanced models.** Add HbA1c, UACR, and/or an SDI decile to also get the
   HbA1c, UACR, SDI, or full models — exactly as the AHA calculator does.
 - **Scrapes unstructured text.** You don't have to type each value. It pulls labs and
   vitals out of messy Epic output (e.g. `Chol 210, HDL 39`, `A1C 7.4`, `eGFR 90`,
@@ -61,7 +64,6 @@ American Heart Association's PREVENT Equations." *Circulation.* 2024;149(6):430�
 | `app.js` | Parser for pasted Epic text + model selection (mirrors `select_model`). |
 | `prevent.js` | The risk engine (transforms + logistic link). |
 | `coeffs.js` | All PREVENT coefficient tables (machine-generated from `preventr`). |
-| `sdi_deciles.json` | ZIP → Social Deprivation Index decile lookup. |
 | `epic_smartphrase.md` | The Epic `.PREVENT` SmartPhrase + build instructions. |
 | `verification/` | Oracle test harness and grid. |
 

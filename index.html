@@ -94,8 +94,8 @@
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { border: none; border-radius: 0; background: var(--field); padding: 7px 10px; font-size: 13px; color: var(--muted); }
   .seg button.sel { background: var(--brand); color: var(--brand-ink); }
-  details.optional { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
-  details.optional summary { cursor: pointer; font-size: 12.5px; color: var(--accent); font-weight: 600; }
+  .optional-open { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; }
+  .opt-head { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
   .results { margin-top: 16px; }
   .modelbadge { display: inline-flex; gap: 8px; align-items: center; background: var(--chip); border: 1px solid var(--line);
     border-radius: 999px; padding: 4px 12px; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
@@ -176,11 +176,14 @@
           <span><i style="background:var(--high)"></i>parsers disagree — check!</span>
         </div>
         <div class="fields" id="reqFields"></div>
-        <details class="optional" id="optWrap">
-          <summary>Optional predictors → enhanced models (HbA1c, UACR, ZIP/SDI)</summary>
-          <div class="fields" id="optFields" style="margin-top:10px;"></div>
-          <p class="unit" id="sdiHint" style="margin:8px 0 0;"></p>
-        </details>
+        <div class="optional-open">
+          <div class="opt-head">Optional predictors → enhanced models (HbA1c, UACR, SDI)</div>
+          <div class="fields" id="optFields"></div>
+          <p class="unit" id="zipNote" style="margin:12px 0 0; white-space:normal;">
+            <b>ZIP code isn’t accepted.</b> A 5-digit ZIP is a HIPAA identifier (PHI), so this tool doesn’t take it or
+            look it up. If you know the patient’s Social Deprivation Index decile (1–10), enter it above for the SDI/full model.
+          </p>
+        </div>
       </div>
     </div>
 
@@ -265,15 +268,14 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=10"></script>
-<script src="prevent.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="coeffs.js?v=11"></script>
+<script src="prevent.js?v=11"></script>
+<script src="app.js?v=11"></script>
 <script>
 (function () {
   "use strict";
   var APP = window.PREVENT_APP, ENGINE = window.PREVENT, C = window.PREVENT_COEFFS;
   var state = { chol_unit: "mg/dL", values: {}, parsed: {} };
-  var sdiMap = null, sdiLoaded = false;
 
   // ---- field config ----
   var REQ = [
@@ -292,8 +294,7 @@
   var OPT = [
     { key: "hba1c", label: "HbA1c",        unit: "%",     kind: "num", range: [4.5, 15] },
     { key: "uacr",  label: "UACR",         unit: "mg/g",  kind: "num", range: [0.1, 25000] },
-    { key: "zip",   label: "ZIP code",     unit: "→ SDI", kind: "zip" },
-    { key: "sdi",   label: "SDI decile",   unit: "1–10 (if ZIP unknown)", kind: "num", range: [1, 10] },
+    { key: "sdi",   label: "SDI decile",   unit: "1–10 (Social Deprivation Index)", kind: "num", range: [1, 10] },
   ];
 
   function cholUnitLabel() { return state.chol_unit; }
@@ -315,8 +316,6 @@
     } else if (f.kind === "bool") {
       input = '<select id="' + idp + '" data-key="' + f.key + '">' +
         '<option value="">—</option><option value="true">Yes</option><option value="false">No</option></select>';
-    } else if (f.kind === "zip") {
-      input = '<input type="text" inputmode="numeric" maxlength="5" id="' + idp + '" data-key="' + f.key + '" placeholder="5 digits">';
     } else {
       input = '<input type="number" step="any" id="' + idp + '" data-key="' + f.key + '" placeholder="—">';
     }
@@ -347,7 +346,6 @@
     var raw = el.value;
     if (f.kind === "sex") return raw || null;
     if (f.kind === "bool") return raw === "" ? null : (raw === "true");
-    if (f.kind === "zip") { var m = String(raw).match(/\d{5}/); return m ? m[0] : (raw ? raw : null); }
     if (raw === "" || raw === null) return null;
     var n = parseFloat(raw); return isNaN(n) ? null : n;
   }
@@ -358,12 +356,6 @@
       var val = readField(f);
       if (val !== null && val !== undefined && val !== "") v[f.key] = val;
     });
-    // ZIP -> SDI decile (ZIP wins over manual decile when resolvable)
-    if (v.zip && sdiMap) {
-      var d = sdiMap[String(v.zip).padStart(5, "0")];
-      if (d !== undefined) v.sdi = d;
-      else if (v.sdi === undefined) v.sdi = NaN; // valid-looking zip but no data -> missing
-    }
     return v;
   }
 
@@ -474,21 +466,7 @@
     }
     setUnitLabels(); markValidity();
     state.values = collect();
-    updateSdiHint();
     compute();
-  }
-
-  function updateSdiHint() {
-    var hint = document.getElementById("sdiHint");
-    var zip = state.values.zip;
-    if (!sdiLoaded) { hint.textContent = "Loading SDI ZIP table…"; return; }
-    if (!sdiMap) { hint.textContent = "SDI ZIP lookup unavailable offline — enter SDI decile manually if known."; return; }
-    if (zip) {
-      var d = sdiMap[String(zip).padStart(5, "0")];
-      hint.textContent = d !== undefined
-        ? "ZIP " + zip + " → SDI decile " + d + " of 10."
-        : "ZIP " + zip + " not found in SDI table (treated as missing SDI).";
-    } else { hint.textContent = ""; }
   }
 
   // ---- compute + render ----
@@ -653,7 +631,7 @@
   var EXAMPLE = ["PREVENT INPUTS", "Age: 58", "Sex: Female", "SBP: 140", "Total cholesterol: 213",
     "HDL: 46", "Diabetes: No", "Current smoker: Yes", "BMI: 29.3", "eGFR: 78",
     "On antihypertensive: Yes", "On statin: No",
-    "HbA1c (optional): ", "UACR (optional): ", "ZIP (optional): "].join("\n");
+    "HbA1c (optional): ", "UACR (optional): "].join("\n");
   document.getElementById("exampleBtn").addEventListener("click", function () {
     document.getElementById("paste").value = EXAMPLE; doParse();
   });
@@ -666,10 +644,7 @@
     document.documentElement.setAttribute("data-theme", next);
   });
 
-  // ---- load SDI map (same-origin; optional) ----
-  fetch("sdi_deciles.json").then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (j) { sdiMap = j; sdiLoaded = true; updateSdiHint(); if (state.values.zip) onFieldInput(); })
-    .catch(function () { sdiLoaded = true; updateSdiHint(); });
+  // (No ZIP→SDI lookup: ZIP is PHI and isn't accepted. SDI decile is entered manually.)
 
   // ---- Epic SmartPhrase template ----
   var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",

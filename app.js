@@ -34,14 +34,15 @@
     hba1c: ["hba1c", "a1c", "hemoglobin a1c", "hgba1c", "glycated hemoglobin"],
     uacr: ["uacr", "urine albumin-creatinine ratio", "urine albumin/creatinine",
            "albumin-creatinine ratio", "microalbumin/creatinine", "acr"],
-    zip: ["zip", "zip code", "zipcode", "postal code"],
+    // NOTE: ZIP code is intentionally NOT parsed — a 5-digit ZIP is a HIPAA
+    // identifier (PHI). SDI decile (a 1–10 index, not identifying) may be entered.
     sdi: ["sdi", "sdi decile", "social deprivation index"],
   };
 
   // Labeled pass handles the explicit/non-lab fields. Numeric lab & vital
   // values (sbp, bmi, total_c, hdl_c, egfr, hba1c, uacr) are handled by
   // scanClinical(), which also works on unstructured lab dumps.
-  var MATCH_ORDER = ["age", "sex", "zip", "sdi", "bp_tx", "statin", "dm", "smoking"];
+  var MATCH_ORDER = ["age", "sex", "sdi", "bp_tx", "statin", "dm", "smoking"];
   // Yes/No fields: only accept an EXPLICIT "Label: value" line (colon/equals).
   // A bare keyword in prose (e.g. "type 2 diabetes mellitus" in a problem list)
   // must fall through to the guarded inference, not be read as a Yes/No answer.
@@ -162,8 +163,6 @@
     switch (field) {
       case "sex": return parseSex(rest);
       case "dm": case "smoking": case "bp_tx": case "statin": return parseBool(rest);
-      case "zip":
-        var zm = rest.match(/\d{5}/); return zm ? zm[0] : null;
       default: return firstNumber(rest);
     }
   }
@@ -283,18 +282,8 @@
     return Math.round(egfr); // preventr rounds eGFR to a whole number
   }
 
-  // ZIP from a city/state/zip string (e.g. @CTYSTZIP@ -> "San Francisco, CA 94110").
-  // Requires a valid 2-letter US state before the 5 digits so it can't grab a lab
-  // value, MRN, or date.
-  var US_STATES = new Set(("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD " +
-    "MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY").split(" "));
-  function scanZip(text) {
-    var re = /\b([A-Za-z]{2})\.?\s+(\d{5})(?:-\d{4})?(?!\d)/g, m;
-    while ((m = re.exec(text)) !== null) {
-      if (US_STATES.has(m[1].toUpperCase())) return m[2];
-    }
-    return null;
-  }
+  // (ZIP-code scraping was intentionally removed — a 5-digit ZIP is a HIPAA
+  // identifier / PHI. The app accepts an SDI decile directly instead.)
 
   // ---- Section-awareness utility ----------------------------------------
   // Returns the most recent standalone section header (a line ending with ":"
@@ -320,7 +309,6 @@
       }
     }
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
-    if (found.zip === undefined) { var z = scanZip(text); if (z) { out.zip = z; found.zip = "scanned"; } }
     tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true });
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
     // firstNumIn already takes the first number after the label anyway. "\btc\b"
@@ -772,7 +760,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, scanZip, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();

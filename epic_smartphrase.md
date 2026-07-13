@@ -39,7 +39,8 @@ or diuretic may not be for blood pressure). Always confirm those. Per token:
 - Other builds: common equivalents include `@BP@`, `@BRIEFLABS()@`, `@PROBLEMLIST@`,
   `@CURMEDS@`/`@OUTMEDS@`, `@SMOKINGSTATUS@`. If a token doesn't resolve, use your build's equivalent
   or just type that one value into the form.
-- To add the SDI/full model, include a `City/State/ZIP: @CTYSTZIP@` line — the app pulls the ZIP.
+- **Do not add a ZIP code.** A 5-digit ZIP is a HIPAA identifier (PHI); the app doesn't accept it. For the
+  SDI/full model, type the patient's SDI decile (1–10) into the form's **SDI decile** field if you know it.
 
 ## Manual fallback (works everywhere, no setup)
 
@@ -60,7 +61,7 @@ On antihypertensive: ***
 On statin: ***
 HbA1c (optional): ***
 UACR (optional): ***
-ZIP (optional): ***
+SDI decile (optional, 1-10): ***
 ```
 
 ---
@@ -90,8 +91,8 @@ ZIP (optional): ***
 | **Statin** | med list | high — matched by statin drug names (nystatin excluded) |
 | **Antihypertensive** | med list | medium — β-blockers/diuretics may be for other indications ⇒ **verify** |
 | **Diabetes** | problem list | medium — excludes pre-diabetes, gestational, family hx, diabetes insipidus ⇒ **verify** |
-| ZIP → SDI decile | add `@CTYSTZIP@` (not in the default phrase) | optional; app pulls the 5-digit ZIP → SDI/full model |
+| SDI decile | typed manually (1–10) | optional; **ZIP is not accepted (PHI)** — enter the decile directly for the SDI/full model |
 
-Out-of-range or blank optional values (HbA1c/UACR/ZIP) are ignored → base model. Provide any of
+Out-of-range or blank optional values (HbA1c/UACR/SDI) are ignored → base model. Provide any of
 them to also get the corresponding enhanced model. Every value lands in an editable form, so fix
 anything before reading the result.
