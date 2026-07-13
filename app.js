@@ -227,6 +227,9 @@
       var rawAfter = text.slice(m.index + m[0].length);
       if (opts.noSlashAfter && /^\s*\//.test(rawAfter)) continue;
       var after = lineAfter(text, m.index + m[0].length);
+      // reject a value that is the lower bound of a range like "BMI 30.0-34.9"
+      // (an obesity/category descriptor, not a measured value).
+      if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
       var result = extractNum(after, opts.thousands);
       // vertical-layout fallback: label on its own line, value on the NEXT line.
@@ -282,6 +285,49 @@
     return Math.round(egfr); // preventr rounds eGFR to a whole number
   }
 
+  // ---- Robust A1c extraction --------------------------------------------
+  // Epic @LASTLAB(A1C,...)@ prints a RESULT TABLE: a "Hemoglobin A1c" header, a
+  // column header row, then a data row where the value sits beside a reference
+  // range ("6.1 (H)  4.3 - 5.6 %") — and often a long diagnostic-cutoff comment
+  // stuffed with other A1c numbers ("4.3% - 5.6% = normal ... >6.4% = diabetes").
+  // A naive label scan grabs 4.3 (a range/cutoff bound) instead of 6.1. This
+  // anchors on the A1c label, scans the next few contiguous lines (stopping at a
+  // blank line or the comment), and rejects reference-range bounds.
+  var A1C_ANCHOR = /\b(?:hb?a1c|hgba1c|hemoglobin\s+a1c|glyc\w*\s*(?:h[ae]mo\w*|hgb|hb)|glycohemoglobin|a1c)\b/i;
+  var A1C_STOP = /cutoff|goal|\bnormal\b|increased\s+risk|diagnos|\bages?\b|guideline|individualize|\bcomment\b/i;
+  function a1cValueInLine(line, start) {
+    // blank out parentheticals (flags like "(H)"), dates and times so their
+    // digits aren't mistaken for the result.
+    var masked = line.replace(/\([^)]*\)/g, function (s) { return s.replace(/[^\n]/g, " "); })
+                     .replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g, function (s) { return s.replace(/./g, " "); })
+                     .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, function (s) { return s.replace(/./g, " "); });
+    var re = /\d{1,2}(?:\.\d+)?/g, m;
+    while ((m = re.exec(masked)) !== null) {
+      if (m.index < (start || 0)) continue;
+      var val = parseFloat(m[0]);
+      if (val < 3 || val > 20) continue;                       // physiologic A1c window
+      var after = masked.slice(m.index + m[0].length, m.index + m[0].length + 6);
+      var before = masked.slice(Math.max(0, m.index - 3), m.index);
+      if (/^\s*[-–]\s*\d/.test(after)) continue;               // range LOW bound: "4.3 - 5.6"
+      if (/[-–]\s*$/.test(before)) continue;                   // range HIGH bound: "4.3 - 5.6"
+      return val;
+    }
+    return null;
+  }
+  function scanA1c(text) {
+    var lines = text.split(/\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var am = A1C_ANCHOR.exec(lines[i]);
+      if (!am) continue;
+      for (var j = i; j < Math.min(lines.length, i + 5); j++) {
+        if (j > i && (lines[j].trim() === "" || A1C_STOP.test(lines[j]))) break; // stay in the result block
+        var v = a1cValueInLine(lines[j], j === i ? am.index + am[0].length : 0);
+        if (v !== null) return v;
+      }
+    }
+    return null;
+  }
+
   // (ZIP-code scraping was intentionally removed — a 5-digit ZIP is a HIPAA
   // identifier / PHI. The app accepts an SDI decile directly instead.)
 
@@ -309,13 +355,16 @@
       }
     }
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
-    tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true });
+    // rejectRange stops "Obesity (BMI 30.0-34.9)" (a diagnosis category) from being
+    // read as a measured BMI of 30.0.
+    tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true, rejectRange: true });
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
     // firstNumIn already takes the first number after the label anyway. "\btc\b"
     // catches the "TC" abbreviation (bounded, so it won't match inside words).
     tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, min: 40, max: 500, allowNextLine: true });
     tryField("hdl_c", "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150, allowNextLine: true });
-    tryField("hba1c", "(?:hb?a1c|hgba1c|a1c|glyc\\w*\\s*(?:h[ae]moglobin|hgb|hb)|glycohemoglobin)", { min: 3, max: 20, allowNextLine: true });
+    // A1c: robust table-aware scan (ignores reference ranges + diagnostic comment).
+    if (found.hba1c === undefined) { var a1c = scanA1c(text); if (a1c !== null) { out.hba1c = a1c; found.hba1c = "scanned"; } }
     tryField("egfr", "\\be?-?gfr(?:cr|cys|creat)?\\b", { min: 1, max: 200, allowNextLine: true });
     // UACR: accept slash, space, or dash between albumin and creatinine
     tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?[/\\s-]+creat(?:inine)?(?:\\s+ratio)?|alb[/\\s-]+cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
@@ -390,7 +439,7 @@
     return null;
   }
 
-  var DM_NEG = /\b(?:no|denies|denied|without|negative for|rule[d]? out|r\/o|family (?:history|hx)|fhx|gestational|borderline|impaired|screen\w*|risk of)\b[^.\n]{0,18}$/;
+  var DM_NEG = /\b(?:no|denies|denied|without|negative for|rule[d]? out|r\/o|family (?:history|hx)|fhx|gestational|borderline|impaired|screen\w*|risk (?:of|for))\b[^.\n]{0,18}$/;
   function detectDiabetes(text) {
     // spelled out: "...diabet(es/ic)..."
     var re = /\bdiabet\w*/gi, m;
@@ -403,6 +452,15 @@
       var pre = text.slice(Math.max(0, start - 60), start).toLowerCase();
       if (/pre-?\s*$/.test(pre)) continue;                          // pre-diabetes
       if (DM_NEG.test(pre)) continue;
+      if (/[=]\s*$/.test(pre)) continue;                            // legend ">6.4% = diabetes"
+      // Skip the A1c diagnostic-cutoff COMMENT ("HbA1c cutoffs for diagnosing
+      // diabetes ... = normal ... increased risk for diabetes"): educational text,
+      // not a diagnosis. Requires an A1c label AND a definitional marker on the
+      // line, so a real "Type 2 diabetes, goal A1c <7" problem entry is unaffected.
+      var lnS = text.lastIndexOf("\n", start) + 1;
+      var lnE = text.indexOf("\n", start); if (lnE < 0) lnE = text.length;
+      var dline = text.slice(lnS, lnE).toLowerCase();
+      if (/a1c|h[ae]moglobin/.test(dline) && /cutoff|diagnos|=\s*normal|increased\s+risk/.test(dline)) continue;
       // Section awareness: skip family history and allergy sections
       var section = sectionAbove(text, start);
       if (/\b(?:family|fhx|allerg|adverse)/i.test(section)) continue;
@@ -674,7 +732,16 @@
     // bmi
     nums.forEach(function (n) { if (V.bmi == null && n.val >= 10 && n.val <= 80 && (/bmi|body\s*mass/.test(n.beforeLine) || /kg\/m/.test(n.after))) V.bmi = n.val; });
     // hba1c
-    nums.forEach(function (n) { if (V.hba1c == null && n.val >= 3 && n.val <= 20 && /a1c|glyc|glycohem/.test(n.beforeLine)) V.hba1c = n.val; });
+    // hba1c: reject reference-range bounds and diagnostic-cutoff comment numbers,
+    // so the second parser abstains (rather than confidently grabbing 4.3) on an
+    // Epic @LASTLAB@ result table — avoiding a false conflict with the primary.
+    nums.forEach(function (n) {
+      if (V.hba1c != null || n.val < 3 || n.val > 20) return;
+      if (!/a1c|glyc|glycohem/.test(n.beforeLine)) return;
+      if (A1C_STOP.test(n.beforeLine)) return;                 // "cutoffs...normal...diabetes"
+      if (/[-–]\s*$/.test(n.beforeLine) || /^\s*[-–]\s*\d/.test(n.after)) return; // range bound
+      V.hba1c = n.val;
+    });
     // uacr — requires both an albumin and a creatinine/ratio cue on the line
     nums.forEach(function (n) { if (V.uacr == null && /uacr|\bacr\b|album|microalb/.test(n.beforeLine) && /creat|\bcr\b|ratio/.test(n.beforeLine) && n.val >= 0.1 && n.val <= 25000) V.uacr = n.val; });
     // eGFR stated — "gfr" on the line, or an mL/min unit that is NOT a creatinine

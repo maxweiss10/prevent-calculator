@@ -138,5 +138,33 @@ var mmolTxt = "Age: 58\nSex: Female\nTotal cholesterol: 5.4 mmol/L\nHDL: 1.3 mmo
 check("annotate: mmol total_c 5.4 flagged missed", annStatus(mmolTxt, "5.4"), { status: "missed", field: "total_c" });
 check("annotate: mmol hdl 1.3 flagged missed", annStatus(mmolTxt, "1.3"), { status: "missed", field: "hdl_c" });
 
+// 14. Robust A1c: Epic @LASTLAB@ result table (value beside ref range + cutoff comment)
+var a1cTable = [
+  "A1c: Hemoglobin A1c",
+  "     Date                     Value               Ref Range           Status",
+  "     04/09/2026               6.1 (H)             4.3 - 5.6 %         Final",
+  "\t\tComment:",
+  "\t\tHbA1c cutoffs: 4.3% - 5.6% = normal  5.7% - 6.4% = increased risk  >6.4% = diabetes",
+].join("\n");
+check("A1c table: value is 6.1 (not the 4.3 ref/cutoff)", APP.parseText("Age: 60\nSex: F\n" + a1cTable).values.hba1c, 6.1);
+// simple formats still work ("robust as previous")
+check("A1c 'A1c: 7.4' -> 7.4", APP.parseText("Age: 60\nSex: M\nA1c: 7.4").values.hba1c, 7.4);
+check("A1c 'Hemoglobin A1c 9.2' -> 9.2", APP.parseText("Age: 60\nSex: M\nHemoglobin A1c 9.2").values.hba1c, 9.2);
+check("A1c 'Glycosylated Hgb: 6.8' -> 6.8", APP.parseText("Age: 60\nSex: M\nGlycosylated Hgb: 6.8").values.hba1c, 6.8);
+// vertical layout (value on next line)
+check("A1c vertical 'A1c\\n6.1' -> 6.1", APP.parseText("Age: 60\nSex: M\nHemoglobin A1c\n6.1").values.hba1c, 6.1);
+
+// 15. BMI not fabricated from an "Obesity (BMI 30.0-34.9)" category descriptor
+var obTxt = "Age: 55\nSex: Female\nProblem List:\n  Obesity (BMI 30.0-34.9)\n  Hypertension\nBMI: no height/weight on file";
+check("BMI category range not read as BMI", APP.parseText(obTxt).values.bmi, undefined);
+check("BMI real value still parsed", APP.parseText("Age: 55\nSex: F\nBMI: 30.0").values.bmi, 30.0);
+
+// 16. A1c diagnostic-cutoff comment must NOT trigger a false diabetes flag
+var a1cCommentTxt = "Hemoglobin A1c 6.1\nHbA1c cutoffs for diagnosing diabetes: 4.3-5.6 = normal, 5.7-6.4 = increased risk for diabetes, >6.4 = diabetes";
+check("A1c cutoff comment -> no diabetes", APP.detectDiabetes(a1cCommentTxt), null);
+check("real Type 2 diabetes still detected", APP.detectDiabetes("Problem List:\n  Type 2 diabetes mellitus"), "Type 2 diabetes");
+check("Type 2 diabetes with A1c goal still detected", !!APP.detectDiabetes("Problem List:\n  Type 2 diabetes, goal A1c <7"), true);
+check("newly diagnosed diabetes still detected", !!APP.detectDiabetes("Problem List:\n  Newly diagnosed diabetes"), true);
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);
