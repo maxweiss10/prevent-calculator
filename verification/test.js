@@ -3,7 +3,6 @@ const fs = require("fs");
 const { PREVENT_COEFFS } = require("../coeffs.js");
 const P = require("../prevent.js");
 
-const sdiMap = JSON.parse(fs.readFileSync("../sdi_deciles.json", "utf8"));
 const lines = fs.readFileSync("./grid.jsonl", "utf8").trim().split("\n");
 
 const OC = ["total_cvd", "ascvd", "heart_failure", "chd", "stroke"];
@@ -19,10 +18,8 @@ for (const line of lines) {
   };
   if (c.hba1c !== null) inp.hba1c = c.hba1c;
   if (c.uacr !== null) inp.uacr = c.uacr;
-  if (c.zip !== null) {
-    const d = sdiMap[String(c.zip).padStart(5, "0")];
-    inp.sdi = d === undefined ? NaN : d;
-  }
+  // sdi decile baked into the grid ("NA" => no data => missing SDI). No ZIP lookup.
+  if (c.sdi !== null && c.sdi !== undefined) inp.sdi = c.sdi === "NA" ? NaN : c.sdi;
 
   const got = P.estimate(inp, c.model, PREVENT_COEFFS, 3);
   const check = (horizon, prefix) => {

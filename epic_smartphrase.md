@@ -15,22 +15,22 @@ PREVENT INPUTS
 Age: @AGE@
 Sex: @SEX@
 BP: @LASTBP(3)@
-BMI: @BMI@
+BMI: @LASTBMI(3)@
 Cholesterol: @BRIEFLAB(CHOL,HDL)@
 eGFR: @NEPHEGFR@
 Problems: @PROB@
 HTN Meds: @HTNMEDS@
 Statin: @STATINS@
 Social Hx: @TOBHX@
-A1c: @LASTLAB(A1C,HGBA1C,HGBA1CEXT)@
+A1c: @LASTLAB(A1C,HGBA1C)@
 ```
 
 Anything auto-*detected* from meds/problems/social history is flagged **amber ("verify")** in the app
 and listed with the evidence it matched — because a list can't always convey intent (e.g. a β-blocker
 or diuretic may not be for blood pressure). Always confirm those. Per token:
 
-- `@AGE@ @SEX@ @BMI@` — demographics/vitals. `@LASTBP(3)@` prints the last 3 BP readings; the app
-  takes the systolic of the **most recent** one (and isn't fooled by the dates).
+- `@AGE@ @SEX@` — demographics. `@LASTBP(3)@` and `@LASTBMI(3)@` print the last 3 BP / BMI readings
+  as dated lists; the app takes the **most recent** value from each (and isn't fooled by the dates).
 - `@BRIEFLAB(CHOL,HDL)@` and `@NEPHEGFR@` — the app pulls Total chol, HDL, and eGFR out of the
   result tables (and computes eGFR from creatinine if only that is shown).
 - `@PROB@` / `@HTNMEDS@` / `@STATINS@` / `@TOBHX@` — problem list, focused HTN-med and statin lists,

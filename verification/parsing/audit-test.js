@@ -166,5 +166,15 @@ check("real Type 2 diabetes still detected", APP.detectDiabetes("Problem List:\n
 check("Type 2 diabetes with A1c goal still detected", !!APP.detectDiabetes("Problem List:\n  Type 2 diabetes, goal A1c <7"), true);
 check("newly diagnosed diabetes still detected", !!APP.detectDiabetes("Problem List:\n  Newly diagnosed diabetes"), true);
 
+// 17. BMI from @LASTBMI(3)@ dated reading list (BP-style, tab-separated)
+var bmiList = "Age: 60\nSex: Male\nBMI:\nBMI Readings from Last 3 Encounters:\n04/13/26\t28.4\n02/23/26\t28.1\nTotal chol: 200\nHDL: 45\neGFR: 80";
+check("BMI dated list -> most recent 28.4", APP.parseText(bmiList).values.bmi, 28.4);
+// must not grab a lab value (value-then-date) or a BP reading as BMI
+var bmiTrap = "Age: 60\nSex: F\nBMI:\nBMI Readings from Last 3 Encounters:\n04/13/26\t28.4\nCholesterol, HDL, Plasma/Serum\t39 (L)\t04/09/2026";
+check("BMI dated list not fooled by trailing-date HDL row", APP.parseText(bmiTrap).values.bmi, 28.4);
+var bpNoBmi = "Age: 60\nSex: F\nBP:\nBP Readings from Last 3 Encounters:\n04/13/26\t130/74\nTotal chol: 200\nHDL: 45";
+check("BP readings not mistaken for BMI", APP.parseText(bpNoBmi).values.bmi, undefined);
+check("BP tab-separated reading still gives SBP 130", APP.parseText(bpNoBmi).values.sbp, 130);
+
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

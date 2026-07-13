@@ -272,6 +272,22 @@
     }
     return null;
   }
+  // BMI from an @LASTBMI(n)@ dated reading list ("BMI Readings from Last 3
+  // Encounters:\n04/13/26<TAB>28.4") — the BMI analogue of the @LASTBP@ list.
+  // Anchors on a BMI label, then takes the most recent (first) reading: a date
+  // IMMEDIATELY followed by the value. A lab row like "HDL 39 ... 04/09/2026"
+  // (value first, date trailing) is NOT matched, so it can't be misread as BMI.
+  function scanBmiList(text) {
+    var lines = text.split(/\n/);
+    for (var i = 0; i < lines.length; i++) {
+      if (!/\bbmi\b|body\s*mass/i.test(lines[i])) continue;
+      for (var j = i; j < Math.min(lines.length, i + 6); j++) {
+        var m = lines[j].match(/\d{1,2}\/\d{1,2}\/\d{2,4}\s+(\d{2,3}(?:\.\d+)?)/);
+        if (m) { var v = parseFloat(m[1]); if (v >= 12 && v <= 80) return v; }
+      }
+    }
+    return null;
+  }
   // CKD-EPI 2021 (race-free) creatinine eGFR — matches preventr::calc_egfr.
   function ckdEpi2021(cr, age, sex, units) {
     if (!(cr > 0) || !(age >= 18 && age <= 100)) return null;
@@ -358,6 +374,8 @@
     // rejectRange stops "Obesity (BMI 30.0-34.9)" (a diagnosis category) from being
     // read as a measured BMI of 30.0.
     tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true, rejectRange: true });
+    // @LASTBMI(n)@ dated reading list (BP-style) when a direct BMI isn't labeled.
+    if (found.bmi === undefined) { var bmiList = scanBmiList(text); if (bmiList !== null) { out.bmi = bmiList; found.bmi = "scanned"; } }
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
     // firstNumIn already takes the first number after the label anyway. "\btc\b"
     // catches the "TC" abbreviation (bounded, so it won't match inside words).

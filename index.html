@@ -268,9 +268,9 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=12"></script>
-<script src="prevent.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="coeffs.js?v=13"></script>
+<script src="prevent.js?v=13"></script>
+<script src="app.js?v=13"></script>
 <script>
 (function () {
   "use strict";
@@ -647,10 +647,10 @@
   // (No ZIP→SDI lookup: ZIP is PHI and isn't accepted. SDI decile is entered manually.)
 
   // ---- Epic SmartPhrase template ----
-  var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",
+  var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @LASTBMI(3)@",
     "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "Problems: @PROB@",
     "HTN Meds: @HTNMEDS@", "Statin: @STATINS@", "Social Hx: @TOBHX@",
-    "A1c: @LASTLAB(A1C,HGBA1C,HGBA1CEXT)@"].join("\n");
+    "A1c: @LASTLAB(A1C,HGBA1C)@"].join("\n");
   document.getElementById("spText").textContent = SP;
   document.getElementById("copySp").addEventListener("click", function () {
     var msg = document.getElementById("copyMsg");
