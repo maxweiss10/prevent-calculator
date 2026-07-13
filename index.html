@@ -649,7 +649,8 @@
   // ---- Epic SmartPhrase template ----
   var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @BMI@",
     "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "Problems: @PROB@",
-    "HTN Meds: @HTNMEDS@", "Statin: @STATINS@", "Social Hx: @TOBHX@"].join("\n");
+    "HTN Meds: @HTNMEDS@", "Statin: @STATINS@", "Social Hx: @TOBHX@",
+    "A1c: @LASTLAB(A1C,HGBA1C,HGBA1CEXT)@"].join("\n");
   document.getElementById("spText").textContent = SP;
   document.getElementById("copySp").addEventListener("click", function () {
     var msg = document.getElementById("copyMsg");

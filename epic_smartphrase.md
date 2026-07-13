@@ -22,6 +22,7 @@ Problems: @PROB@
 HTN Meds: @HTNMEDS@
 Statin: @STATINS@
 Social Hx: @TOBHX@
+A1c: @LASTLAB(A1C,HGBA1C,HGBA1CEXT)@
 ```
 
 Anything auto-*detected* from meds/problems/social history is flagged **amber ("verify")** in the app
