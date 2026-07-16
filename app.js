@@ -103,16 +103,20 @@
 
   // ---- Text normalization ------------------------------------------------
   // Epic output can contain non-breaking spaces, smart quotes, en/em-dashes,
-  // and tabs. Normalizing before parsing prevents subtle match failures.
+  // tabs, and CRLF. Normalizing before parsing prevents subtle match failures.
+  // IMPORTANT: every replacement is LENGTH-PRESERVING (1 char -> 1 char), so a
+  // character offset in the normalized text is also valid in the RAW pasted text.
+  // That keeps the "show your work" highlighter aligned — Epic's tabular output
+  // is full of tabs, and expanding them would shift every downstream highlight.
   function normalizeText(text) {
     return text
       .replace(/ /g, " ")
       .replace(/–/g, "-")
-      .replace(/—/g, " - ")
+      .replace(/—/g, "-")
       .replace(/[‘’]/g, "'")
       .replace(/[“”]/g, '"')
-      .replace(/\r\n/g, "\n")
-      .replace(/\t/g, "  ");
+      .replace(/\r/g, " ")
+      .replace(/\t/g, " ");
   }
 
   // Parse a pasted block into a partial input object + which fields were found.
