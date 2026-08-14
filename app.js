@@ -10,6 +10,10 @@
     hba1c: [4.5, 15], uacr: [0.1, 25000], sdi: [1, 10],
     total_c_mgdl: [130, 320], hdl_c_mgdl: [20, 100],
     total_c_mmol: [3.36, 8.28], hdl_c_mmol: [0.52, 2.59],
+    // LDL-C is not a PREVENT predictor — it drives the 2026 dyslipidemia guideline
+    // recommendations only, so its range is the plausible-value range, not a
+    // preventr validity range.
+    ldl_c_mgdl: [20, 400], ldl_c_mmol: [0.52, 10.34],
   };
 
   // ---- Parsing -----------------------------------------------------------
@@ -385,6 +389,11 @@
     // catches the "TC" abbreviation (bounded, so it won't match inside words).
     tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, min: 40, max: 500, allowNextLine: true });
     tryField("hdl_c", "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150, allowNextLine: true });
+    // LDL-C: not a PREVENT input, but the 2026 dyslipidemia guideline keys several
+    // recommendations off it. "\bldl\b" won't match inside "VLDL" (no word boundary
+    // between V and L), and rejectLine drops "LDL/HDL ratio" lines. A calculated LDL
+    // is what Epic usually prints; "direct"/"calc" qualifiers are accepted.
+    tryField("ldl_c", "(?:\\bldl(?:[\\s-]?c)?\\b(?:\\s*(?:chol\\w*|calc\\w*|direct))?|low[\\s-]?density\\s+lipoprotein)", { badWords: ["non"], noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, min: 10, max: 500, allowNextLine: true });
     // A1c: robust table-aware scan (ignores reference ranges + diagnostic comment).
     if (found.hba1c === undefined) { var a1c = scanA1c(text); if (a1c !== null) { out.hba1c = a1c; found.hba1c = "scanned"; } }
     tryField("egfr", "\\be?-?gfr(?:cr|cys|creat)?\\b", { min: 1, max: 200, allowNextLine: true });
@@ -647,8 +656,9 @@
     var LABELRE = {
       age: /age/, sbp: /\bbp\b|pressure|systolic/, total_c: /chol|\btc\b/, hdl_c: /hdl|high[\s-]?density/,
       bmi: /bmi|body\s*mass/, egfr: /gfr/, hba1c: /a1c|glyc/, uacr: /acr|album|micro/,
+      ldl_c: /\bldl\b|low[\s-]?density/,
     };
-    var TOL = { age: 0.5, sbp: 0.5, total_c: 0.5, hdl_c: 0.5, bmi: 0.05, egfr: 0.5, hba1c: 0.05, uacr: 2 };
+    var TOL = { age: 0.5, sbp: 0.5, total_c: 0.5, hdl_c: 0.5, bmi: 0.05, egfr: 0.5, hba1c: 0.05, uacr: 2, ldl_c: 0.5 };
 
     // BP: consume the systolic (= values.sbp) and its paired diastolic.
     if (values.sbp != null) {
@@ -663,7 +673,7 @@
       }
     }
     // Other numeric fields: value match, preferring a candidate whose line carries the label.
-    ["age", "total_c", "hdl_c", "bmi", "egfr", "hba1c", "uacr"].forEach(function (f) {
+    ["age", "total_c", "hdl_c", "ldl_c", "bmi", "egfr", "hba1c", "uacr"].forEach(function (f) {
       if (values[f] == null) return;
       if (f === "egfr" && found.egfr === "computed_from_cr") return;
       var tol = TOL[f] || 0.5, best = -1;
@@ -691,6 +701,7 @@
     var MISS_RULES = [
       { f: "total_c", re: /total\s*chol|cholesterol|\bchol\b|\btc\b/, excl: /hdl|ldl|vldl|non|ratio/ },
       { f: "hdl_c", re: /hdl|high[\s-]?density/, excl: /non[\s-]?hdl|ldl/ },
+      { f: "ldl_c", re: /\bldl\b|low[\s-]?density/, excl: /vldl|ratio/ },
       { f: "egfr", re: /gfr/, excl: /clearance/ },
       { f: "egfr", re: /creatinine|creat\b|scr|(?:^|[^a-z\/])cr\b/, excl: /alb|ratio|urine|clearance|kinase/ },
       { f: "hba1c", re: /a1c|glyc\w*\s*h[ae]mo/, excl: /trig/ },   // NOT "triglycerides"

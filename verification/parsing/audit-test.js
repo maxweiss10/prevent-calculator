@@ -131,7 +131,9 @@ function annStatus(text, frag) {
 var cleanTxt = "Age: 58\nSex: Female\nTotal cholesterol: 213\nHDL: 52\neGFR: 68\nLDL: 130\nTriglycerides: 150";
 check("annotate: total_c 213 consumed", annStatus(cleanTxt, "213"), { status: "consumed", field: "total_c" });
 check("annotate: hdl 52 consumed", annStatus(cleanTxt, "52"), { status: "consumed", field: "hdl_c" });
-check("annotate: LDL 130 neutral (not a PREVENT field)", annStatus(cleanTxt, "130").status, "neutral");
+// LDL-C is not a PREVENT predictor, but it IS parsed — it drives the 2026 dyslipidemia
+// guideline recommendations, so it must be consumed rather than left neutral.
+check("annotate: LDL 130 consumed as ldl_c", annStatus(cleanTxt, "130"), { status: "consumed", field: "ldl_c" });
 check("annotate: Triglycerides 150 NOT flagged as hba1c miss", annStatus(cleanTxt, "150").status, "neutral");
 // mmol/L cholesterol rejected by parser -> flagged as a miss
 var mmolTxt = "Age: 58\nSex: Female\nTotal cholesterol: 5.4 mmol/L\nHDL: 1.3 mmol/L\neGFR: 68";
@@ -175,6 +177,26 @@ check("BMI dated list not fooled by trailing-date HDL row", APP.parseText(bmiTra
 var bpNoBmi = "Age: 60\nSex: F\nBP:\nBP Readings from Last 3 Encounters:\n04/13/26\t130/74\nTotal chol: 200\nHDL: 45";
 check("BP readings not mistaken for BMI", APP.parseText(bpNoBmi).values.bmi, undefined);
 check("BP tab-separated reading still gives SBP 130", APP.parseText(bpNoBmi).values.sbp, 130);
+
+// 18. LDL-C — not a PREVENT predictor, but parsed for the 2026 guideline layer.
+// The distractors matter: a lipid panel prints VLDL, non-HDL, and ratios right
+// beside the LDL, and reading any of those as LDL would pick the wrong pathway.
+function ldlOf(s) { return APP.parseText("Age: 55\nSex: Male\n" + s).values.ldl_c; }
+check("LDL: 130", ldlOf("LDL: 130"), 130);
+check("LDL-C 142 mg/dL", ldlOf("LDL-C 142 mg/dL"), 142);
+check("Direct LDL 96", ldlOf("Direct LDL 96"), 96);
+check("Low-density lipoprotein 171 (spelled out)", ldlOf("Low-density lipoprotein 171"), 171);
+check("LDL on its own line, value below", ldlOf("LDL\n155"), 155);
+check("VLDL is NOT read as LDL", ldlOf("VLDL: 30"), undefined);
+check("non-HDL is NOT read as LDL", ldlOf("Non-HDL: 160"), undefined);
+check("LDL/HDL ratio line rejected", ldlOf("LDL/HDL ratio: 3.1"), undefined);
+check("ratio line skipped, real LDL still found", ldlOf("Chol/HDL Ratio 4.2\nLDL Calc 118"), 118);
+check("combined line: LDL read, VLDL ignored", ldlOf("LDL 130, VLDL 20"), 130);
+check("full lipid panel", ldlOf("Cholesterol, Total 213\nHDL 52\nLDL Cholesterol 128\nVLDL 33"), 128);
+// LDL must not steal the total-cholesterol or HDL slots.
+var panel = APP.parseText("Age: 55\nSex: Male\nCholesterol, Total 213\nHDL 52\nLDL Cholesterol 128\nVLDL 33");
+check("panel: total_c still 213", panel.values.total_c, 213);
+check("panel: hdl_c still 52", panel.values.hdl_c, 52);
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);

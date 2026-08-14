@@ -124,6 +124,42 @@
     border-radius: 5px; padding: 1px 5px; }
   .themebtn { margin-left: auto; }
   .hide { display: none !important; }
+
+  /* ---- Guideline recommendations ---- */
+  .enh { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 4px; }
+  @media (max-width: 720px) { .enh { grid-template-columns: 1fr; } }
+  .enh label { display: flex; gap: 7px; align-items: flex-start; font-size: 12.5px; color: var(--ink);
+    line-height: 1.4; cursor: pointer; }
+  .enh input { margin: 2px 0 0; flex: none; accent-color: var(--brand); }
+  .rechead { border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 10px;
+    background: var(--bg); padding: 12px 14px; }
+  .rechead .path { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+    font-weight: 700; margin-bottom: 5px; }
+  .rechead .hl { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; background: none; padding: 0; }
+  .rechead .why { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.55; }
+  .cor { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .03em; border: 1px solid var(--line); background: var(--chip); color: var(--muted);
+    vertical-align: 2px; margin-left: 7px; white-space: nowrap; }
+  .cor.c1 { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .cor.c2 { background: color-mix(in srgb, var(--borderline) 18%, transparent); color: var(--borderline);
+    border-color: color-mix(in srgb, var(--borderline) 40%, transparent); }
+  .goalrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .goalrow .metric .v { font-size: 20px; }
+  .gapnote { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.55; }
+  .gapnote.tight { color: var(--warnink); background: var(--warnbg); border: 1px solid var(--warnline);
+    border-radius: 8px; padding: 8px 10px; }
+  ul.recs { list-style: none; margin: 14px 0 0; padding: 0; }
+  ul.recs li { border-top: 1px solid var(--line); padding: 10px 0; }
+  ul.recs li:first-child { border-top: none; }
+  ul.recs .t { font-weight: 650; font-size: 13.5px; }
+  ul.recs .d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+  .cacbox { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+  .cacbox .t { font-weight: 650; font-size: 13.5px; }
+  .cacbox .d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+  .rechead h4, .subhead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); font-weight: 700; margin: 16px 0 0; }
 </style>
 </head>
 <body>
@@ -134,7 +170,9 @@
   </header>
   <p class="sub">Paste your Epic PREVENT dot-phrase output — or any Epic text with the values in it (a labs view or
     note). It scrapes what it can, you verify, and it returns 10- &amp; 30-year Total CVD, ASCVD, and Heart Failure
-    risk. Runs entirely in your browser — no data is sent anywhere.</p>
+    risk — then turns that risk into <b>2026 ACC/AHA dyslipidemia guideline recommendations</b>: which treatment
+    pathway applies, statin intensity, LDL-C and non-HDL-C goals, and where a CAC score would change the decision.
+    Runs entirely in your browser — no data is sent anywhere.</p>
 
   <div class="grid">
     <!-- LEFT: paste + form -->
@@ -185,13 +223,30 @@
           </p>
         </div>
       </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2>3 · Lipid &amp; clinical context <span style="text-transform:none;letter-spacing:0;font-weight:500;">— for guideline recommendations</span></h2>
+        <p class="unit" style="margin:-6px 0 12px; white-space:normal;">None of these change the PREVENT risk
+          estimate — they drive the <b>2026 dyslipidemia guideline</b> recommendations below. LDL-C alone is
+          enough to get a recommendation; the rest refine it.</p>
+        <div class="fields" id="lipidFields"></div>
+        <div class="optional-open">
+          <div class="opt-head">Risk-enhancing factors (2026 guideline, Table 1)</div>
+          <div class="enh" id="enhBoxes"></div>
+        </div>
+      </div>
     </div>
 
     <!-- RIGHT: results -->
     <div>
       <div class="card">
-        <h2>3 · Estimated risk</h2>
+        <h2>4 · Estimated risk</h2>
         <div id="results" class="results"></div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2>5 · Guideline recommendations</h2>
+        <div id="recs"></div>
       </div>
     </div>
   </div>
@@ -256,9 +311,21 @@
       bit-for-bit against the CRAN <a href="https://github.com/martingmayer/preventr" target="_blank" rel="noopener">preventr</a>
       package (v0.11.0) across 1,000 test cases (all 5 outcomes, both sexes, both horizons); eGFR-from-creatinine
       matches the same package. <a href="https://github.com/maxweiss10/prevent-calculator" target="_blank" rel="noopener">Source &amp; verification</a>.</p>
+    <p><b>Recommendations:</b> The guideline layer (<a href="https://github.com/maxweiss10/prevent-calculator/blob/main/guideline.js" target="_blank" rel="noopener">guideline.js</a>)
+      implements the <b>2026 ACC/AHA/AACVPR/ABC/ACPM/ADA/AGS/APhA/ASPC/NLA/PCNA Guideline on the Management of
+      Dyslipidemia</b> (<a href="https://www.ahajournals.org/doi/10.1161/CIR.0000000000001423" target="_blank" rel="noopener">Circulation</a>;
+      <a href="https://www.jacc.org/doi/10.1016/j.jacc.2026.02.4872" target="_blank" rel="noopener">Guideline-at-a-Glance</a>),
+      the first ACC/AHA lipid guideline to use PREVENT in place of the Pooled Cohort Equations. It applies the
+      risk-independent pathways first (clinical ASCVD → LDL-C ≥190 → diabetes), then the risk-based pathway, then
+      the two age-restricted Class 2 routes new in 2026 — a 30-year ASCVD risk ≥10% or an LDL-C of 160–189 mg/dL
+      at ages 30–59. LDL-C, CAC, Lp(a), ASCVD history, and risk enhancers are <b>inputs to the recommendation
+      only</b>; none of them touch the PREVENT computation.</p>
     <p><b>Scope:</b> 10-year risk is validated for ages 30–79; 30-year risk for ages 30–59.
-      ASCVD risk categories (low/borderline/intermediate/high) follow the 2018/2019 ACC/AHA thresholds,
-      which were derived with the Pooled Cohort Equations — apply clinical judgment.</p>
+      ASCVD risk categories follow the <b>2026 PREVENT-ASCVD</b> thresholds — low &lt;3%, borderline 3–&lt;5%,
+      intermediate 5–&lt;10%, high ≥10% — <i>not</i> the 2018/2019 cutpoints of 5/7.5/20%, which were derived with
+      the Pooled Cohort Equations. PREVENT reads systematically lower than the PCE, so the guideline lowered the
+      bands to match; reading a PREVENT score against the old bands would substantially undertreat. Apply clinical
+      judgment.</p>
     <p><b>Disclaimer:</b> For educational and clinician-support use only. Not a substitute for clinical
       judgment or a validated institutional calculator. Verify every value before acting. No patient data
       leaves this page.</p>
@@ -268,13 +335,15 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=14"></script>
-<script src="prevent.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="coeffs.js?v=15"></script>
+<script src="prevent.js?v=15"></script>
+<script src="app.js?v=15"></script>
+<script src="guideline.js?v=15"></script>
 <script>
 (function () {
   "use strict";
   var APP = window.PREVENT_APP, ENGINE = window.PREVENT, C = window.PREVENT_COEFFS;
+  var GUIDE = window.PREVENT_GUIDELINE;
   var state = { chol_unit: "mg/dL", values: {}, parsed: {} };
 
   // ---- field config ----
@@ -296,13 +365,29 @@
     { key: "uacr",  label: "UACR",         unit: "mg/g",  kind: "num", range: [0.1, 25000] },
     { key: "sdi",   label: "SDI decile",   unit: "1–10 (Social Deprivation Index)", kind: "num", range: [1, 10] },
   ];
+  // Guideline-only inputs: not PREVENT predictors, so they never touch the risk
+  // computation — they select which 2026 dyslipidemia pathway applies.
+  var LIPID = [
+    { key: "ldl_c",   label: "LDL-C",           unit: "chol",  kind: "num" },
+    { key: "ascvd_hx",label: "Clinical ASCVD",  kind: "bool" },
+    { key: "veryhigh",label: "…very high risk", kind: "bool" },
+    { key: "cac",     label: "CAC score",       unit: "Agatston units", kind: "num", range: [0, 10000] },
+    { key: "lpa",     label: "Lp(a)",           unit: "mg/dL", kind: "num", range: [1, 500] },
+  ];
 
   function cholUnitLabel() { return state.chol_unit; }
   function cholRange(key) {
     var mg = state.chol_unit === "mg/dL";
     if (key === "total_c") return mg ? APP.RANGES.total_c_mgdl : APP.RANGES.total_c_mmol;
     if (key === "hdl_c")   return mg ? APP.RANGES.hdl_c_mgdl   : APP.RANGES.hdl_c_mmol;
+    if (key === "ldl_c")   return mg ? APP.RANGES.ldl_c_mgdl   : APP.RANGES.ldl_c_mmol;
     return null;
+  }
+  // The guideline's thresholds are all written in mg/dL, so convert once at the
+  // boundary rather than carrying two unit systems through the recommendation logic.
+  function toMgdl(v) {
+    if (v === null || v === undefined || isNaN(v)) return null;
+    return state.chol_unit === "mg/dL" ? v : v * 38.67;
   }
 
   // ---- render form ----
@@ -326,15 +411,41 @@
   function renderForm() {
     document.getElementById("reqFields").innerHTML = REQ.map(fieldHTML).join("");
     document.getElementById("optFields").innerHTML = OPT.map(fieldHTML).join("");
-    REQ.concat(OPT).forEach(function (f) {
+    document.getElementById("lipidFields").innerHTML = LIPID.map(fieldHTML).join("");
+    document.getElementById("enhBoxes").innerHTML = GUIDE.ENHANCERS.map(function (e) {
+      return '<label><input type="checkbox" data-enh="' + e.key + '">' + e.label + '</label>';
+    }).join("");
+    ALL().forEach(function (f) {
       var el = document.getElementById("f_" + f.key);
       el.addEventListener("input", onFieldInput);
       el.addEventListener("change", onFieldInput);
     });
+    document.getElementById("enhBoxes").addEventListener("change", onFieldInput);
+  }
+
+  function ALL() { return REQ.concat(OPT, LIPID); }
+
+  function clearEnhancers() {
+    [].slice.call(document.querySelectorAll("#enhBoxes input[data-enh]"))
+      .forEach(function (b) { b.checked = false; });
+  }
+
+  function readEnhancers() {
+    return [].slice.call(document.querySelectorAll("#enhBoxes input[data-enh]"))
+      .filter(function (b) { return b.checked; })
+      .map(function (b) { return b.getAttribute("data-enh"); });
+  }
+
+  // "Very high risk" only means something alongside established ASCVD.
+  function syncConditional() {
+    var hx = document.getElementById("f_ascvd_hx").value === "true";
+    var row = document.getElementById("f_veryhigh").closest(".field");
+    row.classList.toggle("hide", !hx);
+    if (!hx) document.getElementById("f_veryhigh").value = "";
   }
 
   function setUnitLabels() {
-    ["total_c", "hdl_c"].forEach(function (k) {
+    ["total_c", "hdl_c", "ldl_c"].forEach(function (k) {
       var u = document.getElementById("u_" + k); if (u) u.textContent = cholUnitLabel();
     });
   }
@@ -352,7 +463,7 @@
 
   function collect() {
     var v = { chol_unit: state.chol_unit };
-    REQ.concat(OPT).forEach(function (f) {
+    ALL().forEach(function (f) {
       var val = readField(f);
       if (val !== null && val !== undefined && val !== "") v[f.key] = val;
     });
@@ -360,7 +471,7 @@
   }
 
   function markValidity() {
-    REQ.concat(OPT).forEach(function (f) {
+    ALL().forEach(function (f) {
       var el = document.getElementById("f_" + f.key);
       if (!el) return;
       var val = readField(f);
@@ -376,7 +487,7 @@
   function setDots(found) {
     var anyMark = false;
     var conflicts = state.conflicts || {};
-    REQ.concat(OPT).forEach(function (f) {
+    ALL().forEach(function (f) {
       var d = document.getElementById("dot_" + f.key);
       if (!d) return;
       var v = found[f.key];
@@ -396,7 +507,11 @@
   function doParse() {
     var text = document.getElementById("paste").value;
     // Reset the form first so a previous patient's/paste's values never linger.
-    REQ.concat(OPT).forEach(function (f) { document.getElementById("f_" + f.key).value = ""; });
+    // That includes the manually-entered guideline context (CAC, ASCVD history, risk
+    // enhancers): a new paste means a new patient, and a stale CAC score silently
+    // carried over would change the recommendation.
+    ALL().forEach(function (f) { document.getElementById("f_" + f.key).value = ""; });
+    clearEnhancers();
     var res = APP.parseText(text);
     state.parsed = res.found;
     state.inferred = res.inferred || {};
@@ -423,7 +538,7 @@
     var card = document.getElementById("sourceCard");
     if (!text || !text.trim()) { card.style.display = "none"; return; }
     var spans = APP.annotateSource(text, res).slice().sort(function (a, b) { return a.start - b.start; });
-    var FL = {}; REQ.concat(OPT).forEach(function (f) { FL[f.key] = f.label; });
+    var FL = {}; ALL().forEach(function (f) { FL[f.key] = f.label; });
     var conflicts = res.conflicts || {}, found = res.found || {};
     var html = "", pos = 0, misses = 0;
     spans.forEach(function (s) {
@@ -464,20 +579,21 @@
         e.target.classList.remove("conflict");
       }
     }
-    setUnitLabels(); markValidity();
+    setUnitLabels(); markValidity(); syncConditional();
     state.values = collect();
+    state.enhancers = readEnhancers();
     compute();
   }
 
   // ---- compute + render ----
   var PRIM = [["total_cvd", "Total CVD"], ["ascvd", "ASCVD"], ["heart_failure", "Heart Failure"]];
   function pct(x) { return (x * 100).toFixed(1) + "%"; }
+  // 2026 PREVENT-ASCVD categories (<3 / 3–<5 / 5–<10 / ≥10). These are deliberately
+  // NOT the 2018/2019 PCE cutpoints of 5 / 7.5 / 20 — PREVENT is better calibrated and
+  // reads lower than the PCE, so the guideline lowered the bands to match it.
   function ascvdCat(r) {
-    var p = r * 100;
-    if (p < 5) return ["low", "Low"];
-    if (p < 7.5) return ["borderline", "Borderline"];
-    if (p < 20) return ["intermediate", "Intermediate"];
-    return ["high", "High"];
+    var c = GUIDE.categorize(r * 100);
+    return [c.key, c.label];
   }
 
   function missingRequired(v) {
@@ -522,6 +638,8 @@
     if (miss.length) {
       box.innerHTML = '<div class="panelmsg info">Enter or paste the remaining required value' +
         (miss.length > 1 ? "s" : "") + ': <b>' + miss.join(", ") + '</b>.</div>';
+      document.getElementById("recs").innerHTML =
+        '<div class="panelmsg info" style="margin-top:0;">Recommendations appear once the risk estimate is computable.</div>';
       return;
     }
     var out = APP.computeAll(v);
@@ -574,7 +692,7 @@
     // value; user must verify. (Cleared per-field once the user edits that field.)
     var conflictMsg = "";
     if (state.conflicts) {
-      var FL = {}; REQ.concat(OPT).forEach(function (f) { FL[f.key] = f.label; });
+      var FL = {}; ALL().forEach(function (f) { FL[f.key] = f.label; });
       var citems = [];
       var baseAscvd = ascvd10For(v);
       Object.keys(state.conflicts).forEach(function (k) {
@@ -608,6 +726,72 @@
     }
 
     box.innerHTML = conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>' + msgs;
+    renderRecs(v, primary);
+  }
+
+  // ---- guideline recommendations ----
+  function corChip(cor) {
+    if (!cor) return "";
+    return '<span class="cor ' + (cor === "Class 1" ? "c1" : "c2") + '">' + cor + '</span>';
+  }
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+
+  function renderRecs(v, primary) {
+    var box = document.getElementById("recs");
+    var rec = GUIDE.recommend({
+      age: v.age, sex: v.sex, dm: v.dm, smoking: v.smoking, statin: v.statin,
+      ascvd10: primary.r10.ascvd,
+      // The 30-year pathway is only validated to age 59; above that, withhold the
+      // number from the engine rather than let it drive a recommendation.
+      ascvd30: v.age <= 59 ? primary.r30.ascvd : null,
+      ldl: toMgdl(v.ldl_c), tc: toMgdl(v.total_c), hdl: toMgdl(v.hdl_c),
+      clinicalAscvd: v.ascvd_hx === true, veryHigh: v.veryhigh === true,
+      cac: v.cac, lpa: v.lpa, enhancers: state.enhancers || [],
+    });
+
+    var html = '<div class="rechead">' +
+      '<div class="path">' + esc(rec.pathwayLabel) +
+      (rec.category && rec.pathway === "risk" ? ' · ' + esc(rec.category.label) + ' risk (' + rec.category.range + ')' : '') +
+      '</div><div class="hl">' + esc(rec.headline) + '</div>' +
+      (rec.headlineNote ? '<div class="why">' + esc(rec.headlineNote) + '</div>' : '') + '</div>';
+
+    if (rec.goals) {
+      html += '<div class="subhead">Treatment goals — ' + esc(rec.goals.label) + '</div><div class="goalrow">' +
+        '<div class="metric"><div class="v">&lt;' + rec.goals.ldl + '</div><div class="l">LDL-C mg/dL' +
+          (rec.goals.ldlNow != null ? ' · now ' + Math.round(rec.goals.ldlNow) : '') + '</div></div>' +
+        '<div class="metric"><div class="v">&lt;' + rec.goals.nonhdl + '</div><div class="l">Non-HDL-C mg/dL' +
+          (rec.goals.nonhdlNow != null ? ' · now ' + Math.round(rec.goals.nonhdlNow) : '') + '</div></div></div>';
+      if (rec.goals.gapNote) {
+        var tight = rec.goals.reduction != null && rec.goals.reduction >= 50;
+        html += '<div class="gapnote' + (tight ? ' tight' : '') + '">' + esc(rec.goals.gapNote) + '</div>';
+      } else {
+        html += '<div class="gapnote">Enter an LDL-C above to see the percent reduction this goal requires.</div>';
+      }
+    }
+
+    if (rec.items.length) {
+      html += '<div class="subhead">Recommended actions</div><ul class="recs">' + rec.items.map(function (it) {
+        return '<li><div class="t">' + esc(it.title) + corChip(it.cor) + '</div>' +
+          '<div class="d">' + esc(it.detail) + '</div></li>';
+      }).join("") + '</ul>';
+    }
+
+    if (rec.cac) {
+      html += '<div class="cacbox"><div class="t">' + esc(rec.cac.title) + corChip(rec.cac.cor) + '</div>' +
+        '<div class="d">' + esc(rec.cac.detail) + '</div></div>';
+    }
+
+    if (rec.caveats.length) {
+      html += '<div class="panelmsg warn"><b>Before you act on this</b><ul class="msglist"><li>' +
+        rec.caveats.map(esc).join("</li><li>") + '</li></ul></div>';
+    }
+
+    html += '<p class="unit" style="margin:14px 0 0; white-space:normal;">Per the <b>2026 ACC/AHA/Multisociety ' +
+      'dyslipidemia guideline</b>. Class 1 = recommended; Class 2 = may be considered after a clinician–patient ' +
+      'discussion. These are guideline defaults for a typical patient — they do not account for statin intolerance, ' +
+      'drug interactions, pregnancy, or competing goals of care.</p>';
+
+    box.innerHTML = html;
   }
 
   // ---- unit toggle ----
@@ -623,13 +807,14 @@
   document.getElementById("paste").addEventListener("paste", function () { setTimeout(doParse, 0); });
   document.getElementById("clearBtn").addEventListener("click", function () {
     document.getElementById("paste").value = "";
-    REQ.concat(OPT).forEach(function (f) { document.getElementById("f_" + f.key).value = ""; });
+    ALL().forEach(function (f) { document.getElementById("f_" + f.key).value = ""; });
+    clearEnhancers();
     state.conflicts = {}; state.inferred = {};
     document.getElementById("sourceCard").style.display = "none";
     setDots({}); onFieldInput();
   });
   var EXAMPLE = ["PREVENT INPUTS", "Age: 58", "Sex: Female", "SBP: 140", "Total cholesterol: 213",
-    "HDL: 46", "Diabetes: No", "Current smoker: Yes", "BMI: 29.3", "eGFR: 78",
+    "HDL: 46", "LDL: 142", "Diabetes: No", "Current smoker: Yes", "BMI: 29.3", "eGFR: 78",
     "On antihypertensive: Yes", "On statin: No",
     "HbA1c (optional): ", "UACR (optional): "].join("\n");
   document.getElementById("exampleBtn").addEventListener("click", function () {
@@ -648,7 +833,7 @@
 
   // ---- Epic SmartPhrase template ----
   var SP = ["PREVENT INPUTS", "Age: @AGE@", "Sex: @SEX@", "BP: @LASTBP(3)@", "BMI: @LASTBMI(3)@",
-    "Cholesterol: @BRIEFLAB(CHOL,HDL)@", "eGFR: @NEPHEGFR@", "Problems: @PROB@",
+    "Cholesterol: @BRIEFLAB(CHOL,HDL,LDL)@", "eGFR: @NEPHEGFR@", "Problems: @PROB@",
     "HTN Meds: @HTNMEDS@", "Statin: @STATINS@", "Social Hx: @TOBHX@",
     "A1c: @LASTLAB(A1C,HGBA1C)@"].join("\n");
   document.getElementById("spText").textContent = SP;

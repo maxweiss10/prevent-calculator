@@ -16,7 +16,7 @@ Age: @AGE@
 Sex: @SEX@
 BP: @LASTBP(3)@
 BMI: @LASTBMI(3)@
-Cholesterol: @BRIEFLAB(CHOL,HDL)@
+Cholesterol: @BRIEFLAB(CHOL,HDL,LDL)@
 eGFR: @NEPHEGFR@
 Problems: @PROB@
 HTN Meds: @HTNMEDS@
@@ -31,8 +31,10 @@ or diuretic may not be for blood pressure). Always confirm those. Per token:
 
 - `@AGE@ @SEX@` — demographics. `@LASTBP(3)@` and `@LASTBMI(3)@` print the last 3 BP / BMI readings
   as dated lists; the app takes the **most recent** value from each (and isn't fooled by the dates).
-- `@BRIEFLAB(CHOL,HDL)@` and `@NEPHEGFR@` — the app pulls Total chol, HDL, and eGFR out of the
-  result tables (and computes eGFR from creatinine if only that is shown).
+- `@BRIEFLAB(CHOL,HDL,LDL)@` and `@NEPHEGFR@` — the app pulls Total chol, HDL, LDL, and eGFR out of
+  the result tables (and computes eGFR from creatinine if only that is shown). LDL-C is **not** a
+  PREVENT predictor — it feeds the 2026 dyslipidemia guideline recommendations (goals, the LDL ≥190
+  and LDL 160–189 pathways), so including it saves you typing it in.
 - `@PROB@` / `@HTNMEDS@` / `@STATINS@` / `@TOBHX@` — problem list, focused HTN-med and statin lists,
   and tobacco history. The app detects **diabetes** (from problems), and reads the focused lists
   directly: a **"No current … medications"** line ⇒ that flag is **No**; a listed drug ⇒ **Yes**.
