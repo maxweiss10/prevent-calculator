@@ -10,6 +10,10 @@ get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD an
 - **Turns the risk into a recommendation.** Applies the **2026 ACC/AHA dyslipidemia guideline** —
   the treatment pathway, statin intensity, LDL-C and non-HDL-C goals, the two new 30-year and
   LDL 160–189 pathways, and how a CAC score changes the decision. See below.
+- **Copy-ready plan text.** Once the risk is computed, a one-line summary for the note —
+  `PREVENT ASCVD 2.4% (10y) / 7.9% (30y), borderline risk` — with a **Copy** button. Optionally
+  append total CVD / heart-failure risk and the guideline recommendation (statin intensity, LDL-C
+  goal, and the % reduction needed). Plain ASCII, so it pastes cleanly into Epic.
 - **No data leaves your browser, and nothing is even fetched.** All computation is
   client-side with zero network requests after the page loads.
 - **ZIP code is not accepted.** A 5-digit ZIP is a HIPAA identifier (PHI), so the app
@@ -37,6 +41,7 @@ get 10- and 30-year risk of **Total CVD, ASCVD, and Heart Failure** (plus CHD an
 3. Paste into the app, glance at the parsed values, read the risks.
 4. Add LDL-C (and optionally CAC, Lp(a), ASCVD history, risk enhancers) to get the guideline
    recommendation for that risk.
+5. Click **Copy** on the plan text and paste the one-liner into your assessment & plan.
 
 ## Guideline recommendations
 
@@ -114,7 +119,7 @@ American Heart Association's PREVENT Equations." *Circulation.* 2024;149(6):430�
 
 | File | Purpose |
 |------|---------|
-| `index.html` | The whole UI (paste → parse → editable form → results). |
+| `index.html` | The whole UI (paste → parse → editable form → results → copy-ready plan text). |
 | `app.js` | Parser for pasted Epic text + model selection (mirrors `select_model`). |
 | `prevent.js` | The risk engine (transforms + logistic link). |
 | `guideline.js` | 2026 dyslipidemia guideline recommendations from a computed risk. |

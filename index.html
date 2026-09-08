@@ -160,6 +160,19 @@
   .cacbox .d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
   .rechead h4, .subhead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
     color: var(--muted); font-weight: 700; margin: 16px 0 0; }
+
+  /* ---- Plan text (copy into Epic) ---- */
+  .plan { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 10px 12px; }
+  .planhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .planhead .t { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+  .planopts { display: inline-flex; gap: 12px; flex-wrap: wrap; }
+  .planopts label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted);
+    cursor: pointer; white-space: nowrap; }
+  .planopts input { margin: 0; accent-color: var(--brand); }
+  .planhead .copy { margin-left: auto; padding: 5px 12px; font-size: 13px; }
+  .plan pre { margin: 0; white-space: pre-wrap; word-break: break-word; user-select: all; color: var(--ink);
+    font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
 </style>
 </head>
 <body>
@@ -172,7 +185,8 @@
     note). It scrapes what it can, you verify, and it returns 10- &amp; 30-year Total CVD, ASCVD, and Heart Failure
     risk — then turns that risk into <b>2026 ACC/AHA dyslipidemia guideline recommendations</b>: which treatment
     pathway applies, statin intensity, LDL-C and non-HDL-C goals, and where a CAC score would change the decision.
-    Runs entirely in your browser — no data is sent anywhere.</p>
+    A copy-ready one-liner for your note appears with the result. Runs entirely in your browser — no data is
+    sent anywhere.</p>
 
   <div class="grid">
     <!-- LEFT: paste + form -->
@@ -242,6 +256,19 @@
       <div class="card">
         <h2>4 · Estimated risk</h2>
         <div id="results" class="results"></div>
+        <div id="plan" class="plan hide">
+          <div class="planhead">
+            <span class="t">Plan text</span>
+            <span class="planopts">
+              <label><input type="checkbox" id="planCvd"> + total CVD &amp; HF</label>
+              <label><input type="checkbox" id="planRec"> + recommendation</label>
+            </span>
+            <button class="primary copy" id="copyPlan">Copy</button>
+            <span class="unit" id="planMsg"></span>
+          </div>
+          <pre id="planText"></pre>
+        </div>
+        <div id="resultNotes"></div>
       </div>
 
       <div class="card" style="margin-top:16px;">
@@ -640,6 +667,9 @@
         (miss.length > 1 ? "s" : "") + ': <b>' + miss.join(", ") + '</b>.</div>';
       document.getElementById("recs").innerHTML =
         '<div class="panelmsg info" style="margin-top:0;">Recommendations appear once the risk estimate is computable.</div>';
+      document.getElementById("resultNotes").innerHTML = "";
+      document.getElementById("plan").classList.add("hide");
+      state.plan = null;
       return;
     }
     var out = APP.computeAll(v);
@@ -725,8 +755,10 @@
           'The form shows the <b>primary</b> value — check each against Epic and correct if wrong.</div>';
     }
 
-    box.innerHTML = conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>' + msgs;
-    renderRecs(v, primary);
+    box.innerHTML = conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>';
+    var rec = renderRecs(v, primary);
+    renderPlan(v, out, primary, rec);
+    document.getElementById("resultNotes").innerHTML = msgs;
   }
 
   // ---- guideline recommendations ----
@@ -792,7 +824,94 @@
       'drug interactions, pregnancy, or competing goals of care.</p>';
 
     box.innerHTML = html;
+    return rec;
   }
+
+  // ---- clipboard ----
+  function copyText(text, msg) {
+    var done = function () { msg.textContent = "copied ✓"; setTimeout(function () { msg.textContent = ""; }, 1800); };
+    var fallback = function () {
+      var t = document.createElement("textarea"); t.value = text; document.body.appendChild(t);
+      t.select(); try { document.execCommand("copy"); } catch (e) {} document.body.removeChild(t); done();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  }
+
+  // ---- plan text (copy into Epic) ----
+  // One note-ready line, e.g. "PREVENT ASCVD 2.4% (10y) / 7.9% (30y), borderline risk", with
+  // opt-in extras. Emitted as plain ASCII so it pastes cleanly into any EHR text field,
+  // printout, or interface. The two toggles are remembered in this browser (no patient data).
+  var planPrefs = { cvdhf: false, rec: false };
+  try {
+    var savedPrefs = JSON.parse(localStorage.getItem("prevent.planPrefs") || "{}");
+    planPrefs.cvdhf = !!savedPrefs.cvdhf; planPrefs.rec = !!savedPrefs.rec;
+  } catch (e) {}
+  function savePlanPrefs() { try { localStorage.setItem("prevent.planPrefs", JSON.stringify(planPrefs)); } catch (e) {} }
+
+  function ascii(s) {
+    return String(s)
+      .replace(/[\u2013\u2014\u2212]/g, "-").replace(/\u2265/g, ">=").replace(/\u2264/g, "<=")
+      .replace(/\u2192/g, "->").replace(/\u2248/g, "~").replace(/\u00D7/g, "x").replace(/\u2026/g, "...")
+      .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\u00A0/g, " ");
+  }
+
+  // Which optional predictors actually drove an enhanced model. Mirrors selectModel's
+  // usability checks, so an out-of-range HbA1c that computeAll ignored is not claimed.
+  function modelTag(v, model) {
+    if (model === "base") return "";
+    var R = APP.RANGES, used = [];
+    if (v.hba1c != null && v.hba1c >= R.hba1c[0] && v.hba1c <= R.hba1c[1]) used.push("HbA1c");
+    if (v.uacr != null && v.uacr >= R.uacr[0] && v.uacr <= R.uacr[1]) used.push("UACR");
+    if (v.sdi != null && !isNaN(v.sdi)) used.push("SDI");
+    return used.length ? " (+" + used.join("/") + ")" : "";
+  }
+
+  // The risk-based pathway needs no tag: the category on the first line already says it.
+  var PATH_TAG = { secondary: " (secondary prevention)", severe: " (severe hypercholesterolemia)",
+    diabetes: " (diabetes pathway)" };
+
+  function planText(v, out, primary, rec) {
+    var r10 = primary.r10, r30 = primary.r30;
+    var show30 = v.age <= 59;   // the 30-year equations were only validated to age 59
+    var both = function (k) { return pct(r10[k]) + (show30 ? " / " + pct(r30[k]) : ""); };
+    var cat = GUIDE.categorize(r10.ascvd * 100);
+    var line = "PREVENT" + modelTag(v, out.model) + " ASCVD " + pct(r10.ascvd) + " (10y)" +
+      (show30 ? " / " + pct(r30.ascvd) + " (30y)" : "") +
+      (cat ? ", " + cat.label.toLowerCase() + " risk" : "");
+    if (planPrefs.cvdhf) line += "; total CVD " + both("total_cvd") + "; HF " + both("heart_failure");
+    var lines = [line];
+    // goals is null only when the guideline had nothing to say (inputs incomplete).
+    if (planPrefs.rec && rec && rec.goals) {
+      var g = rec.goals, now = "";
+      if (g.ldlNow != null) {
+        now = " (now " + Math.round(g.ldlNow) +
+          (g.reduction === 0 ? ", at goal" : g.reduction != null ? ", needs " + g.reduction + "% reduction" : "") + ")";
+      }
+      lines.push("2026 ACC/AHA" + (PATH_TAG[rec.pathway] || "") + ": " + rec.headline.replace(/\.$/, "") +
+        "; LDL-C goal <" + g.ldl + " mg/dL" + now + ", non-HDL-C <" + g.nonhdl + ".");
+    }
+    return ascii(lines.join("\n"));
+  }
+
+  function renderPlan(v, out, primary, rec) {
+    state.plan = { v: v, out: out, primary: primary, rec: rec };
+    document.getElementById("planCvd").checked = planPrefs.cvdhf;
+    document.getElementById("planRec").checked = planPrefs.rec;
+    document.getElementById("planText").textContent = planText(v, out, primary, rec);
+    document.getElementById("plan").classList.remove("hide");
+  }
+  function refreshPlan() { var p = state.plan; if (p) renderPlan(p.v, p.out, p.primary, p.rec); }
+
+  document.getElementById("planCvd").addEventListener("change", function () {
+    planPrefs.cvdhf = this.checked; savePlanPrefs(); refreshPlan();
+  });
+  document.getElementById("planRec").addEventListener("change", function () {
+    planPrefs.rec = this.checked; savePlanPrefs(); refreshPlan();
+  });
+  document.getElementById("copyPlan").addEventListener("click", function () {
+    copyText(document.getElementById("planText").textContent, document.getElementById("planMsg"));
+  });
 
   // ---- unit toggle ----
   document.getElementById("unitSeg").addEventListener("click", function (e) {
@@ -838,14 +957,7 @@
     "A1c: @LASTLAB(A1C,HGBA1C)@"].join("\n");
   document.getElementById("spText").textContent = SP;
   document.getElementById("copySp").addEventListener("click", function () {
-    var msg = document.getElementById("copyMsg");
-    var done = function () { msg.textContent = "copied ✓"; setTimeout(function () { msg.textContent = ""; }, 1800); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(SP).then(done, fallback);
-    else fallback();
-    function fallback() {
-      var t = document.createElement("textarea"); t.value = SP; document.body.appendChild(t);
-      t.select(); try { document.execCommand("copy"); } catch (e) {} document.body.removeChild(t); done();
-    }
+    copyText(SP, document.getElementById("copyMsg"));
   });
 
   renderForm();
