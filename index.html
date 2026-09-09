@@ -68,18 +68,18 @@
   .dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; border: 1px solid var(--line); flex: none; }
   .dot.on { background: var(--ok); border-color: var(--ok); }
   .dot.infer { background: #d98324; border-color: #d98324; }
-  .dot.conflict { background: var(--high); border-color: var(--high); box-shadow: 0 0 0 3px color-mix(in srgb, var(--high) 30%, transparent); animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 30%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--high) 12%, transparent); } }
-  input.conflict, select.conflict { border-color: var(--high) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 20%, transparent); }
-  .panelmsg.conflict { background: color-mix(in srgb, var(--high) 12%, var(--panel)); color: var(--ink); border: 1.5px solid var(--high); }
+  .dot.conflict { background: var(--high); border-color: var(--high); box-shadow: 0 0 0 3px rgba(192,57,43,0.30); box-shadow: 0 0 0 3px color-mix(in srgb, var(--high) 30%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 2px rgba(192,57,43,0.30); box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 30%, transparent); } 50% { box-shadow: 0 0 0 4px rgba(192,57,43,0.12); box-shadow: 0 0 0 4px color-mix(in srgb, var(--high) 12%, transparent); } }
+  input.conflict, select.conflict { border-color: var(--high) !important; box-shadow: 0 0 0 2px rgba(192,57,43,0.20); box-shadow: 0 0 0 2px color-mix(in srgb, var(--high) 20%, transparent); }
+  .panelmsg.conflict { background: #f7e7e6; background: color-mix(in srgb, var(--high) 12%, var(--panel)); color: var(--ink); border: 1.5px solid var(--high); }
   .panelmsg.conflict b { color: var(--high); }
   .srcmap { white-space: pre-wrap; word-break: break-word; font: 12.5px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 240px; overflow: auto; }
   .hl { border-radius: 4px; padding: 0 2px; }
-  .hl-c { background: color-mix(in srgb, var(--ok) 24%, transparent); }
-  .hl-i { background: color-mix(in srgb, #d98324 30%, transparent); }
-  .hl-x { background: color-mix(in srgb, var(--high) 26%, transparent); outline: 1px solid var(--high); }
-  .hl-miss { background: color-mix(in srgb, var(--high) 15%, transparent); border-bottom: 2px dashed var(--high); font-weight: 700; }
+  .hl-c { background: rgba(26,127,82,0.24); background: color-mix(in srgb, var(--ok) 24%, transparent); }
+  .hl-i { background: rgba(217,131,36,0.30); background: color-mix(in srgb, #d98324 30%, transparent); }
+  .hl-x { background: rgba(192,57,43,0.26); background: color-mix(in srgb, var(--high) 26%, transparent); outline: 1px solid var(--high); }
+  .hl-miss { background: rgba(192,57,43,0.15); background: color-mix(in srgb, var(--high) 15%, transparent); border-bottom: 2px dashed var(--high); font-weight: 700; }
   .hl-dia { opacity: .5; }
   .srclegend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
   .srclegend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -142,10 +142,10 @@
   .cor { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700;
     letter-spacing: .03em; border: 1px solid var(--line); background: var(--chip); color: var(--muted);
     vertical-align: 2px; margin-left: 7px; white-space: nowrap; }
-  .cor.c1 { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok);
-    border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
-  .cor.c2 { background: color-mix(in srgb, var(--borderline) 18%, transparent); color: var(--borderline);
-    border-color: color-mix(in srgb, var(--borderline) 40%, transparent); }
+  .cor.c1 { background: rgba(26,127,82,0.18); background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok);
+    border-color: rgba(26,127,82,0.40); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .cor.c2 { background: rgba(184,134,11,0.18); background: color-mix(in srgb, var(--borderline) 18%, transparent); color: var(--borderline);
+    border-color: rgba(184,134,11,0.40); border-color: color-mix(in srgb, var(--borderline) 40%, transparent); }
   .goalrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
   .goalrow .metric .v { font-size: 20px; }
   .gapnote { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.55; }
@@ -157,7 +157,7 @@
   ul.recs .t { font-weight: 650; font-size: 13.5px; }
   ul.recs .d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
   .cacbox { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-    background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+    background: #eef4fc; background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
   .cacbox .t { font-weight: 650; font-size: 13.5px; }
   .cacbox .d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
   .rechead h4, .subhead { font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
@@ -208,10 +208,10 @@
         <div id="missSummary" class="panelmsg" style="display:none; margin-top:0; margin-bottom:10px;"></div>
         <div class="srcmap" id="sourceMap"></div>
         <div class="srclegend">
-          <span><i style="background:color-mix(in srgb,var(--ok) 24%,transparent)"></i>used</span>
-          <span><i style="background:color-mix(in srgb,#d98324 30%,transparent)"></i>auto-detected</span>
-          <span><i style="background:color-mix(in srgb,var(--high) 26%,transparent);outline:1px solid var(--high)"></i>parsers disagree</span>
-          <span><i style="background:color-mix(in srgb,var(--high) 15%,transparent);border-bottom:2px dashed var(--high)"></i>not captured — check</span>
+          <span><i style="background:rgba(26,127,82,0.24);background:color-mix(in srgb,var(--ok) 24%,transparent)"></i>used</span>
+          <span><i style="background:rgba(217,131,36,0.30);background:color-mix(in srgb,#d98324 30%,transparent)"></i>auto-detected</span>
+          <span><i style="background:rgba(192,57,43,0.26);background:color-mix(in srgb,var(--high) 26%,transparent);outline:1px solid var(--high)"></i>parsers disagree</span>
+          <span><i style="background:rgba(192,57,43,0.15);background:color-mix(in srgb,var(--high) 15%,transparent);border-bottom:2px dashed var(--high)"></i>not captured — check</span>
         </div>
       </div>
 
