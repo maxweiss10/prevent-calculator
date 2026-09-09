@@ -44,6 +44,8 @@
   .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 18px 60px; }
   header.top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
   h1 { font-size: 21px; margin: 0; letter-spacing: -0.01em; }
+  h1 a.home { color: inherit; text-decoration: none; }
+  h1 a.home:hover { text-decoration: underline; text-underline-offset: 3px; }
   .sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 18px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
@@ -178,7 +180,7 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>AHA PREVENT Risk Calculator</h1>
+    <h1><a class="home" href="https://maxweiss10.github.io/prevent-calculator/">AHA PREVENT Risk Calculator</a></h1>
     <button class="link themebtn" id="themeToggle" title="Toggle light/dark">◐ theme</button>
   </header>
   <p class="sub">Paste your Epic PREVENT dot-phrase output — or any Epic text with the values in it (a labs view or
@@ -947,6 +949,12 @@
       (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark"));
     document.documentElement.setAttribute("data-theme", next);
   });
+
+  // ---- brand link: when embedded (e.g. the Google Sites wrapper used to get past Epic's link
+  //      allowlist) the wrapper's sandbox forbids navigating the top window but allows popups,
+  //      so open the real site in a new tab. Top-level, the link simply reloads the live page. ----
+  var home = document.querySelector("h1 a.home");
+  if (home && window.self !== window.top) { home.target = "_blank"; home.rel = "noopener"; }
 
   // (No ZIP→SDI lookup: ZIP is PHI and isn't accepted. SDI decile is entered manually.)
 
