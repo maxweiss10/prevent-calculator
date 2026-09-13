@@ -177,6 +177,13 @@ check("BMI dated list not fooled by trailing-date HDL row", APP.parseText(bmiTra
 var bpNoBmi = "Age: 60\nSex: F\nBP:\nBP Readings from Last 3 Encounters:\n04/13/26\t130/74\nTotal chol: 200\nHDL: 45";
 check("BP readings not mistaken for BMI", APP.parseText(bpNoBmi).values.bmi, undefined);
 check("BP tab-separated reading still gives SBP 130", APP.parseText(bpNoBmi).values.sbp, 130);
+// Real UCSF @LASTBMI(3)@ output uses " : " between date and value (like @LASTBP@),
+// on the same line as the "BMI:" label, with a kg/m² unit (regression, 9/2026).
+var bmiColon = "Age: 74 y.o.\nSex: male\nBP: BP Readings from Last 3 Encounters:\n09/12/26 : 104/74\n06/23/26 : 108/70\nBMI: BMI Readings from Last 3 Encounters:\n09/10/26 : 21.35 kg/m²\n06/23/26 : 26.00 kg/m²\nCholesterol, Total,*     197                 08/13/2026\nCholesterol, HDL, P*     37 (L)              08/13/2026\neGFR: eGFR: 58 at 09/12/2026";
+var bc = APP.parseText(bmiColon);
+check("BMI colon-separated dated list -> most recent 21.35", bc.values.bmi, 21.35);
+check("BMI colon list: SBP still 104", bc.values.sbp, 104);
+check("BMI colon list: both parsers agree on BMI", bc.conflicts.bmi, "agree");
 
 // 18. LDL-C — not a PREVENT predictor, but parsed for the 2026 guideline layer.
 // The distractors matter: a lipid panel prints VLDL, non-HDL, and ratios right

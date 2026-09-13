@@ -283,14 +283,16 @@
   // BMI from an @LASTBMI(n)@ dated reading list ("BMI Readings from Last 3
   // Encounters:\n04/13/26<TAB>28.4") — the BMI analogue of the @LASTBP@ list.
   // Anchors on a BMI label, then takes the most recent (first) reading: a date
-  // IMMEDIATELY followed by the value. A lab row like "HDL 39 ... 04/09/2026"
-  // (value first, date trailing) is NOT matched, so it can't be misread as BMI.
+  // IMMEDIATELY followed by the value — separated by whitespace, a tab, or the
+  // " : " Epic prints in @LASTBMI(n)@ ("09/10/26 : 21.35 kg/m²"), same as the
+  // @LASTBP(n)@ list. A lab row like "HDL 39 ... 04/09/2026" (value first, date
+  // trailing) is NOT matched, so it can't be misread as BMI.
   function scanBmiList(text) {
     var lines = text.split(/\n/);
     for (var i = 0; i < lines.length; i++) {
       if (!/\bbmi\b|body\s*mass/i.test(lines[i])) continue;
       for (var j = i; j < Math.min(lines.length, i + 6); j++) {
-        var m = lines[j].match(/\d{1,2}\/\d{1,2}\/\d{2,4}\s+(\d{2,3}(?:\.\d+)?)/);
+        var m = lines[j].match(/\d{1,2}\/\d{1,2}\/\d{2,4}(?:\s*[:\-–]\s*|\s+)(\d{2,3}(?:\.\d+)?)/);
         if (m) { var v = parseFloat(m[1]); if (v >= 12 && v <= 80) return v; }
       }
     }
