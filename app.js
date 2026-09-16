@@ -230,8 +230,10 @@
         var le0 = text.indexOf("\n", m.index); if (le0 < 0) le0 = text.length;
         if (opts.rejectLine.test(text.slice(ls, le0))) continue;
       }
-      // ratio guard: reject "X/HDL" (slash immediately before) or "Chol/HDL" (slash immediately after name)
-      if (opts.noSlashBefore && /\/\s*$/.test(text.slice(Math.max(0, m.index - 2), m.index))) continue;
+      // ratio guard: reject "Chol/HDL", "LDL / HDL" (a NAME right before the slash =
+      // a ratio) — but not "Chol 210 / HDL 45" (a NUMBER before the slash = values
+      // delimited by slashes). noSlashAfter rejects the "Chol" of "Chol/HDL".
+      if (opts.noSlashBefore && /[a-z)]\s*\/\s*$/i.test(text.slice(Math.max(lnStart, m.index - 12), m.index))) continue;
       var rawAfter = text.slice(m.index + m[0].length);
       if (opts.noSlashAfter && /^\s*\//.test(rawAfter)) continue;
       var after = lineAfter(text, m.index + m[0].length);
@@ -240,6 +242,7 @@
       if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
       var result = extractNum(after, opts.thousands);
+      var unitScope = after; // where a required unit (opts.requireUnit) must appear
       // vertical-layout fallback: label on its own line, value on the NEXT line.
       // Only accept a next line that is ENTIRELY a number (optionally with a unit),
       // so "eGFR\n68" works but "eGFR\ncarvedilol 10 mg" does not.
@@ -248,11 +251,14 @@
         if (lend >= 0) {
           var nend = text.indexOf("\n", lend + 1); if (nend < 0) nend = text.length;
           var nextLine = text.slice(lend + 1, nend);
-          if (/^\s*[<>≤≥]?\s*\d[\d,]*(?:\.\d+)?\s*(?:%|mg\/dl|mmol\/l|ml\/min[^\n]*|kg\/m²?2?|µmol\/l)?\s*$/i.test(nextLine))
+          if (/^\s*[<>≤≥]?\s*\d[\d,]*(?:\.\d+)?\s*(?:%|mg\/dl|mmol\/l|ml\/min[^\n]*|kg\/m²?2?|µmol\/l)?\s*$/i.test(nextLine)) {
             result = extractNum(nextLine, opts.thousands);
+            unitScope = nextLine;
+          }
         }
       }
       if (result === null) continue;
+      if (opts.requireUnit && !opts.requireUnit.test(unitScope)) continue;
       var n = result.value;
       if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
       return { value: n, threshold: result.threshold };
@@ -260,16 +266,21 @@
     return null;
   }
   function scanSbp(text) {
-    // 1) explicit "BP 148/86", "148/86 mmHg", "SBP 148"
+    // 1) explicit "BP 148/86", "BP 148 over 86", "148/86 mmHg", "SBP 148"
     var pats = [
-      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*\/\s*\d{2,3}/i,
-      /(\d{2,3})\s*\/\s*\d{2,3}\s*mm\s*hg/i,
+      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*(?:\/|over)\s*\d{2,3}/i,
+      /(\d{2,3})\s*(?:\/|over)\s*\d{2,3}\s*mm\s*hg/i,
       /\b(?:sbp|systolic(?:\s*(?:bp|blood\s*pressure))?)\b[^\d\n]{0,12}(\d{2,3})/i,
     ];
     for (var i = 0; i < pats.length; i++) {
       var m = text.match(pats[i]);
       if (m) { var v = parseFloat(m[1]); if (v >= 70 && v <= 260) return v; }
     }
+    // 1b) comma-separated pair "BP 138, 82": only when both numbers are in
+    //     physiologic range, systolic > diastolic, and no further number follows
+    //     (so "BP 138, HR 82" — a different vital — is not read as a pair).
+    var cm = text.match(/\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*,\s*(\d{2,3})\b(?!\s*[\/,.]\s*\d)/i);
+    if (cm) { var cs = +cm[1], cd = +cm[2]; if (cs >= 70 && cs <= 260 && cd >= 30 && cd <= 160 && cs > cd) return cs; }
     // 2) fallback for reading lists (@LASTBP(n)@ -> "07/10/26 : 110/72"): first
     //    SBP/DBP pair that isn't part of a date (not followed by another "/digits")
     //    and whose values are in physiologic range. Readings are most-recent-first.
@@ -363,7 +374,10 @@
   // and diabetes detection so allergy/family-history sections don't trigger
   // false positives.
   function sectionAbove(text, pos) {
-    var chunk = text.slice(0, pos);
+    // Only COMPLETE lines above the current one count: slicing mid-line would turn
+    // the current line's own prefix ("  Father: ") into a bogus header and hide the
+    // real section ("Family History:") above it.
+    var chunk = text.slice(0, text.lastIndexOf("\n", pos - 1) + 1);
     var re = /(?:^|\n)[ \t]*([^\n:]{1,60})\s*:\s*$/gm;
     var last = null, m;
     while ((m = re.exec(chunk)) !== null) last = m[1].trim().toLowerCase();
@@ -389,13 +403,31 @@
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
     // firstNumIn already takes the first number after the label anyway. "\btc\b"
     // catches the "TC" abbreviation (bounded, so it won't match inside words).
-    tryField("total_c", "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)", { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, min: 40, max: 500, allowNextLine: true });
-    tryField("hdl_c", "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)", { badWords: ["non"], noSlashBefore: true, min: 5, max: 150, allowNextLine: true });
     // LDL-C: not a PREVENT input, but the 2026 dyslipidemia guideline keys several
     // recommendations off it. "\bldl\b" won't match inside "VLDL" (no word boundary
     // between V and L), and rejectLine drops "LDL/HDL ratio" lines. A calculated LDL
     // is what Epic usually prints; "direct"/"calc" qualifiers are accepted.
-    tryField("ldl_c", "(?:\\bldl(?:[\\s-]?c)?\\b(?:\\s*(?:chol\\w*|calc\\w*|direct))?|low[\\s-]?density\\s+lipoprotein)", { badWords: ["non"], noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, min: 10, max: 500, allowNextLine: true });
+    var TC_PAT = "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)";
+    var HDL_PAT = "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)";
+    var LDL_PAT = "(?:\\bldl(?:[\\s-]?c)?\\b(?:\\s*(?:chol\\w*|calc\\w*|direct))?|low[\\s-]?density\\s+lipoprotein)";
+    var TC_OPTS = { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, allowNextLine: true };
+    var HDL_OPTS = { badWords: ["non"], noSlashBefore: true, allowNextLine: true };
+    var LDL_OPTS = { badWords: ["non"], noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, allowNextLine: true };
+    function ranged(o, min, max, extra) { var r = Object.assign({}, o, { min: min, max: max }); if (extra) Object.assign(r, extra); return r; }
+    // Units: mg/dL first (the Epic default). If no mg/dL-magnitude total is labeled,
+    // retry as an SI panel ("Total cholesterol: 5.4 mmol/L") — a small-magnitude
+    // value is accepted ONLY when "mmol" is printed with it, never on magnitude
+    // alone. The unit found is reported as chol_unit so the UI can flip its toggle;
+    // the numbers themselves are never converted here (the engine converts).
+    tryField("total_c", TC_PAT, ranged(TC_OPTS, 40, 500));
+    var mmol = false;
+    if (found.total_c === undefined) {
+      tryField("total_c", TC_PAT, ranged(TC_OPTS, 1.5, 15, { requireUnit: /mmol/i }));
+      mmol = found.total_c !== undefined;
+    }
+    if (found.total_c !== undefined) { out.chol_unit = mmol ? "mmol/L" : "mg/dL"; found.chol_unit = "scanned"; }
+    tryField("hdl_c", HDL_PAT, mmol ? ranged(HDL_OPTS, 0.2, 5) : ranged(HDL_OPTS, 5, 150));
+    tryField("ldl_c", LDL_PAT, mmol ? ranged(LDL_OPTS, 0.2, 12) : ranged(LDL_OPTS, 10, 500));
     // A1c: robust table-aware scan (ignores reference ranges + diagnostic comment).
     if (found.hba1c === undefined) { var a1c = scanA1c(text); if (a1c !== null) { out.hba1c = a1c; found.hba1c = "scanned"; } }
     tryField("egfr", "\\be?-?gfr(?:cr|cys|creat)?\\b", { min: 1, max: 200, allowNextLine: true });
@@ -545,11 +577,11 @@
 
   // Negation context: these words immediately before a positive smoking match
   // mean the match is negated ("not a current smoker", "denies smoking").
-  var SMOKE_NEG = /\b(?:not?|never|neither|deny|denies|denied|no longer|non|former|ex|isn't|is\s+not|not\s+a|was\s+not|doesn't|does\s+not)\s*$/i;
+  var SMOKE_NEG = /\b(?:not?|never|neither|deny|denies|denied|no longer|non|former|ex|passive|second-?hand|isn't|is\s+not|not\s+a|was\s+not|doesn't|does\s+not)-?\s*$/i;
 
   function detectSmoking(text) {
     // Iterate all positive matches — skip any that are negated in context.
-    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b)/gi;
+    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b|smokers?\b(?!\s*[:*]))/gi;
     var cur, negatedEvidence = null;
     while ((cur = curRe.exec(text)) !== null) {
       var pre = text.slice(Math.max(0, cur.index - 25), cur.index);
@@ -567,6 +599,19 @@
     if (non) return { value: false, evidence: non[0].trim() };
     // A negated positive ("not a current smoker") is evidence of non-smoking
     if (negatedEvidence) return { value: false, evidence: "negated: " + negatedEvidence };
+    // Problem-list diagnoses (ICD-10 F17.2x / Z72.0 wording): "Nicotine dependence,
+    // cigarettes", "Tobacco use disorder". Checked LAST so an explicit social-history
+    // status ("Former") outranks a possibly stale problem-list entry. Skipped when
+    // the line says remission / history-of / former / quit, or the entry sits in a
+    // family-history or allergy section.
+    var dxRe = /\b(?:nicotine\s+dependence|tobacco\s+(?:use\s+disorder|dependence|abuse))\b/gi, dx;
+    while ((dx = dxRe.exec(text)) !== null) {
+      var ls = text.lastIndexOf("\n", dx.index) + 1;
+      var le = text.indexOf("\n", dx.index); if (le < 0) le = text.length;
+      if (/remission|former|history|\bhx\b|h\/o|quit|prior|past|\bex-?\b/i.test(text.slice(ls, le))) continue;
+      if (/\b(?:family|fhx|allerg|adverse)/i.test(sectionAbove(text, dx.index))) continue;
+      return { value: true, evidence: dx[0].trim() };
+    }
     return null;
   }
 
@@ -745,7 +790,7 @@
     });
 
     // sbp: first physiologic BP pair not part of a date, else "SBP n" / "n mmHg"
-    var bpRe = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, bm;
+    var bpRe = /(\d{2,3})\s*(?:\/|over)\s*(\d{2,3})(?!\s*\/\s*\d)/g, bm;
     while ((bm = bpRe.exec(text)) !== null) {
       var s = +bm[1], d = +bm[2];
       if (s >= 70 && s <= 260 && d >= 30 && d <= 160) { V.sbp = s; break; }
@@ -760,8 +805,9 @@
       var bl = n.beforeLine;
       if (!/chol|hdl|ldl|lipoprotein|\btc\b/.test(bl)) return;
       if (/non[\s-]?hdl|\bldl\b|vldl|trig|ratio/.test(bl)) return;      // distractor lines
-      if (/hdl|high[\s-]?density/.test(bl)) { if (V.hdl_c == null && n.val >= 5 && n.val <= 150) V.hdl_c = n.val; return; }
-      if (/total|\btc\b|chol/.test(bl)) { if (V.total_c == null && n.val >= 40 && n.val <= 500) V.total_c = n.val; }
+      var si = /^\s*mmol/i.test(n.after);                                  // SI-unit panel
+      if (/hdl|high[\s-]?density/.test(bl)) { if (V.hdl_c == null && (si ? (n.val >= 0.2 && n.val <= 5) : (n.val >= 5 && n.val <= 150))) V.hdl_c = n.val; return; }
+      if (/total|\btc\b|chol/.test(bl)) { if (V.total_c == null && (si ? (n.val >= 1.5 && n.val <= 15) : (n.val >= 40 && n.val <= 500))) V.total_c = n.val; }
     });
 
     // bmi
@@ -813,6 +859,7 @@
       if (a == null || isNaN(a)) return;                 // nothing to check
       if (b == null || isNaN(b)) { report[f] = "unconfirmed"; return; }
       var tol = f === "uacr" ? Math.max(2, 0.05 * Math.max(a, b)) : XCHECK_TOL[f];
+      if ((f === "total_c" || f === "hdl_c") && primary.chol_unit === "mmol/L") tol = 0.05; // SI magnitudes
       report[f] = Math.abs(a - b) <= tol ? "agree" : "conflict";
     });
     if (primary.sex) report.sex = second.sex ? (primary.sex === second.sex ? "agree" : "conflict") : "unconfirmed";

@@ -307,6 +307,8 @@
       <li>normalizes Unicode (smart quotes, non-breaking spaces, en/em-dashes) so copy-paste artifacts don’t break matching;</li>
       <li>scrapes labs &amp; vitals from result tables, <span class=”kbd”>@LASTBP(n)@</span> reading lists,
         comma lists, and prose — taking the systolic of the most recent BP and ignoring dates/reference ranges;</li>
+      <li>reads cholesterol in <b>mg/dL or mmol/L</b>: an SI-unit panel (“5.4 mmol/L”) flips the unit toggle
+        automatically, and a small-magnitude value is accepted as mmol/L only when that unit is printed with it;</li>
       <li>detects <b>threshold values</b> (like “eGFR &gt;60”) and warns you that the parsed number is a
         reporting limit, not an exact measurement — enter the actual value if known;</li>
       <li>computes <b>eGFR</b> from serum creatinine (CKD-EPI 2021) when only creatinine is shown;</li>
@@ -324,8 +326,8 @@
         eGFR contradicts the serum creatinine — the field is flagged in <b style="color:var(--high)">red</b> as a
         likely parsing error to double-check. The form keeps the primary parser's value.</li>
       <li><b>shows its work</b> (“What the parser read”): the pasted text is echoed back with every value it used
-        highlighted and color-coded to a field — so a number it <i>missed</i> stands out (a cholesterol in mmol/L, a
-        lab it couldn’t label) and gets flagged “not captured — check.”</li>
+        highlighted and color-coded to a field — so a number it <i>missed</i> stands out (a lab it couldn’t label, a
+        value printed in a layout it doesn’t know) and gets flagged “not captured — check.”</li>
       <li><b>quantifies what’s at stake</b>: for a disagreement or an auto-detected flag, it recomputes 10-year ASCVD
         both ways (e.g. “eGFR 92 → 13.7% vs eGFR 24 → 21.6%”), so you know whether an uncertain value actually
         changes management or is safe to move past.</li>
@@ -364,10 +366,10 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=16"></script>
-<script src="prevent.js?v=16"></script>
-<script src="app.js?v=16"></script>
-<script src="guideline.js?v=16"></script>
+<script src="coeffs.js?v=17"></script>
+<script src="prevent.js?v=17"></script>
+<script src="app.js?v=17"></script>
+<script src="guideline.js?v=17"></script>
 <script>
 (function () {
   "use strict";
@@ -556,6 +558,10 @@
       if (typeof val === "boolean") el.value = String(val);
       else el.value = val;
     });
+    // The parser reports which cholesterol unit the paste used (mg/dL, or mmol/L for
+    // an SI panel); flip the toggle to match so the numbers aren't misread. Left
+    // alone when no cholesterol was found.
+    if (res.values.chol_unit) setCholUnit(res.values.chol_unit);
     setDots(res.found);
     renderSourceMap(text, res);
     onFieldInput();
@@ -916,10 +922,14 @@
   });
 
   // ---- unit toggle ----
+  function setCholUnit(u) {
+    state.chol_unit = u;
+    [].forEach.call(document.querySelectorAll("#unitSeg button[data-u]"), function (x) { x.classList.toggle("sel", x.getAttribute("data-u") === u); });
+    setUnitLabels();
+  }
   document.getElementById("unitSeg").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-u]"); if (!b) return;
-    state.chol_unit = b.getAttribute("data-u");
-    [].forEach.call(this.querySelectorAll("button"), function (x) { x.classList.toggle("sel", x === b); });
+    setCholUnit(b.getAttribute("data-u"));
     onFieldInput();
   });
 

@@ -135,10 +135,13 @@ check("annotate: hdl 52 consumed", annStatus(cleanTxt, "52"), { status: "consume
 // guideline recommendations, so it must be consumed rather than left neutral.
 check("annotate: LDL 130 consumed as ldl_c", annStatus(cleanTxt, "130"), { status: "consumed", field: "ldl_c" });
 check("annotate: Triglycerides 150 NOT flagged as hba1c miss", annStatus(cleanTxt, "150").status, "neutral");
-// mmol/L cholesterol rejected by parser -> flagged as a miss
+// mmol/L cholesterol is now parsed (unit-gated) -> consumed, not a miss (9/2026)
 var mmolTxt = "Age: 58\nSex: Female\nTotal cholesterol: 5.4 mmol/L\nHDL: 1.3 mmol/L\neGFR: 68";
-check("annotate: mmol total_c 5.4 flagged missed", annStatus(mmolTxt, "5.4"), { status: "missed", field: "total_c" });
-check("annotate: mmol hdl 1.3 flagged missed", annStatus(mmolTxt, "1.3"), { status: "missed", field: "hdl_c" });
+check("annotate: mmol total_c 5.4 consumed", annStatus(mmolTxt, "5.4"), { status: "consumed", field: "total_c" });
+check("annotate: mmol hdl 1.3 consumed", annStatus(mmolTxt, "1.3"), { status: "consumed", field: "hdl_c" });
+// a small number with NO unit printed is still not parsed -> flagged as a miss for the human
+var mmolNoUnit = "Age: 58\nSex: Female\nTotal cholesterol: 5.4\nHDL: 1.3\neGFR: 68";
+check("annotate: unit-less 5.4 flagged missed (total_c)", annStatus(mmolNoUnit, "5.4"), { status: "missed", field: "total_c" });
 
 // 14. Robust A1c: Epic @LASTLAB@ result table (value beside ref range + cutoff comment)
 var a1cTable = [
@@ -204,6 +207,54 @@ check("full lipid panel", ldlOf("Cholesterol, Total 213\nHDL 52\nLDL Cholesterol
 var panel = APP.parseText("Age: 55\nSex: Male\nCholesterol, Total 213\nHDL 52\nLDL Cholesterol 128\nVLDL 33");
 check("panel: total_c still 213", panel.values.total_c, 213);
 check("panel: hdl_c still 52", panel.values.hdl_c, 52);
+
+// 20. Adversarial-probe frontier (9/2026): BP phrasings, slash-delimited lipids,
+//     SI-unit (mmol/L) panels, prose / problem-list smoking status.
+check("BP 'over' word -> 138", APP.parseText("Age: 58\nSex: M\nBP: 138 over 82\nHDL: 45").values.sbp, 138);
+check("BP comma pair -> 138", APP.parseText("Age: 58\nSex: M\nBP 138, 82\nHDL: 45").values.sbp, 138);
+check("BP comma then HR: 82 is not read as anything", APP.parseText("Age: 58\nSex: M\nBP 138, HR 82\nHDL: 45").values.sbp !== 82, true);
+check("BP comma pair with SBP < DBP rejected", APP.parseText("Age: 58\nSex: M\nBP 82, 138\nHDL: 45").values.sbp, undefined);
+var slash = APP.parseText("Age: 58\nSex: M\nChol 210 / HDL 45 / LDL 130\neGFR: 80");
+check("slash-delimited lipids: total 210", slash.values.total_c, 210);
+check("slash-delimited lipids: HDL 45", slash.values.hdl_c, 45);
+check("slash-delimited lipids: LDL 130", slash.values.ldl_c, 130);
+check("slash-delimited lipids: parsers agree on HDL", slash.conflicts.hdl_c, "agree");
+var ratio = APP.parseText("Age: 58\nSex: M\nChol/HDL ratio: 4.2\nLDL / HDL: 2.6\nTotal chol: 210\nHDL: 50\nLDL: 130").values;
+check("Chol/HDL ratio still not read as HDL", ratio.hdl_c, 50);
+check("Chol/HDL ratio still not read as total", ratio.total_c, 210);
+check("LDL / HDL ratio still not read as LDL", ratio.ldl_c, 130);
+var mm = APP.parseText("Age: 58\nSex: F\nTotal cholesterol: 5.4 mmol/L\nHDL: 1.3 mmol/L\nLDL: 3.1 mmol/L\neGFR: 80");
+check("mmol/L panel: total 5.4", mm.values.total_c, 5.4);
+check("mmol/L panel: HDL 1.3", mm.values.hdl_c, 1.3);
+check("mmol/L panel: LDL 3.1", mm.values.ldl_c, 3.1);
+check("mmol/L panel: unit reported", mm.values.chol_unit, "mmol/L");
+check("mmol/L panel: parsers agree on total", mm.conflicts.total_c, "agree");
+check("mmol/L panel: parsers agree on HDL", mm.conflicts.hdl_c, "agree");
+check("mmol/L vertical layout (unit on value line)", APP.parseText("Age: 58\nSex: F\nTotal cholesterol\n5.4 mmol/L\nHDL\n1.3 mmol/L").values.total_c, 5.4);
+check("mg/dL panel: unit reported as mg/dL", APP.parseText("Age: 58\nSex: F\nTotal cholesterol: 197\nHDL: 37").values.chol_unit, "mg/dL");
+check("no cholesterol -> no unit reported", APP.parseText("Age: 58\nSex: F\neGFR: 80").values.chol_unit, undefined);
+check("small unlabeled-unit number is NOT taken as mmol total", APP.parseText("Age: 58\nSex: F\nCholesterol: 5.4\nHDL: 45").values.total_c, undefined);
+check("...and HDL there stays mg/dL", APP.parseText("Age: 58\nSex: F\nCholesterol: 5.4\nHDL: 45").values.hdl_c, 45);
+check("'Pt is a smoker' -> true", APP.parseText("Age: 58\nSex: M\nSocial Hx: Pt is a smoker\nHDL: 45").values.smoking, true);
+check("'heavy smoker' -> true", APP.parseText("Age: 58\nSex: M\nSocial: heavy smoker\nHDL: 45").values.smoking, true);
+check("'Non-smoker' -> false", APP.parseText("Age: 58\nSex: M\nSocial Hx: Non-smoker\nHDL: 45").values.smoking, false);
+check("'Ex-smoker' -> false", APP.parseText("Age: 58\nSex: M\nSocial Hx: Ex-smoker\nHDL: 45").values.smoking, false);
+check("'Passive smoker' -> false", APP.parseText("Age: 58\nSex: M\nSocial Hx: passive smoker (spouse smokes)\nHDL: 45").values.smoking, false);
+check("'Former Smoker' (capitalized) -> false", APP.parseText("Age: 58\nSex: M\nSmoking status: Former Smoker\nHDL: 45").values.smoking, false);
+check("'Smoker: No' -> false", APP.parseText("Age: 58\nSex: M\nSmoker: No\nHDL: 45").values.smoking, false);
+check("problem-list 'Nicotine dependence, cigarettes' -> true", APP.parseText("Age: 58\nSex: M\nProblem List:\n  Nicotine dependence, cigarettes, uncomplicated\n  HTN\nHDL: 45").values.smoking, true);
+check("problem-list 'Tobacco use disorder' -> true", APP.parseText("Age: 58\nSex: M\nProblem List:\n  Tobacco use disorder\nHDL: 45").values.smoking, true);
+check("'Nicotine dependence, in remission' -> left blank", APP.parseText("Age: 58\nSex: M\nProblem List:\n  Nicotine dependence, cigarettes, in remission\nHDL: 45").values.smoking, undefined);
+check("social-hx 'Former' outranks problem-list nicotine dependence", APP.parseText("Age: 58\nSex: M\nProblem List:\n  Nicotine dependence\nSocial: Smoking status: Former\nHDL: 45").values.smoking, false);
+check("family-history 'tobacco abuse' ignored", APP.parseText("Age: 58\nSex: M\nFamily History:\n  Father: tobacco abuse, lung cancer\nHDL: 45").values.smoking, undefined);
+check("real Epic 'Smoking status: Never' still false", APP.parseText("Age: 74\nSex: male\nSocial Hx: Social History\n  Tobacco Use\n    Smoking status: Never\n      Passive exposure: Never\n    Smokeless tobacco: Never\nHDL: 37").values.smoking, false);
+
+// sectionAbove regression: an indented "Mother: diabetes" under a "Family History:"
+// header used to be read as the PATIENT's diabetes — slicing the text mid-line made
+// "Mother: " look like the nearest section header, hiding the family-history one.
+check("indented family-history 'Mother: diabetes' is not the patient's", APP.parseText("Age: 58\nSex: M\nFamily History:\n  Mother: diabetes\n  Father: MI\nHDL: 45").values.dm, undefined);
+check("...with a problem list present -> No (not on list)", APP.parseText("Age: 58\nSex: M\nFamily History:\n  Mother: diabetes\nProblem List:\n  Essential hypertension\nHDL: 45").values.dm, false);
+check("...but the patient's own T2DM on the problem list still wins", APP.parseText("Age: 58\nSex: M\nFamily History:\n  Mother: diabetes\nProblem List:\n  Type 2 diabetes mellitus\nHDL: 45").values.dm, true);
 
 console.log("\n" + pass + " passed, " + fail + " failed");
 if (fail > 0) process.exit(1);
