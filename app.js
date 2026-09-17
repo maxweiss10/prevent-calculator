@@ -65,14 +65,21 @@
     return m ? parseFloat(m[0]) : null;
   }
 
-  var TRUE_WORDS = /\b(yes|y|true|positive|pos|present|current|active|on|1|\+)\b/i;
-  var FALSE_WORDS = /\b(no|n|false|negative|neg|none|never|former|quit|denies|absent|off|0)\b/i;
+  // The bare digits 1/0 are guarded so they can't match INSIDE a number:
+  // "Smoking: 0.5 ppd" is half a pack a day, not a "0" meaning No.
+  var TRUE_WORDS = /\b(yes|y|true|positive|pos|present|current|active|on|\+)\b|(?<![\d.])1(?![\d.])/i;
+  var FALSE_WORDS = /\b(no|not|n|false|negative|neg|none|never|former|quit|denies|absent|off)\b|(?<![\d.])0(?![\d.])/i;
+  // Values that answer nothing. "no change" describes a CONTINUING regimen and
+  // "on hold" a suspended one; both contain words ("no", "on") that parseBool
+  // would otherwise turn into a confident Yes or No.
+  var NON_ANSWER = /^\s*(?:no\s+chang|unchanged|same\b|continue|cont\b|on\s+hold|held\b|holding\b|pending)/i;
 
   function parseBool(s) {
     if (s == null) return null;
     var t = String(s).trim();
     if (t === "") return null;
     if (MISSING_DATA.test(t)) return null;
+    if (NON_ANSWER.test(t)) return null;
     if (FALSE_WORDS.test(t) && !TRUE_WORDS.test(t)) return false;
     if (TRUE_WORDS.test(t) && !FALSE_WORDS.test(t)) return true;
     // both or neither -> prefer negative token position vs positive
@@ -99,7 +106,7 @@
   // after the first ':' or '=' (skips descriptors like "(CKD-EPI 2021):"),
   // otherwise use the remainder as-is (whitespace-separated values).
   function valueRegion(after) {
-    var ci = after.search(/[:=]/);
+    var ci = after.search(/[:=?]/);
     return (ci >= 0 ? after.slice(ci + 1) : after).trim();
   }
 
@@ -144,7 +151,9 @@
           var after = line.slice(m.index + m[0].length);
           // Yes/No fields require an explicit ":"/"=" right after the label,
           // so bare mentions in prose/problem lists don't become answers.
-          if (BOOL_FIELDS[field] && !/^\s*[:=]/.test(after)) break;
+          // "?" included so a pre-visit questionnaire ("Diabetes? No",
+          // "Smoker? No") is read as the explicit No that it is.
+          if (BOOL_FIELDS[field] && !/^\s*[:=?]/.test(after)) break;
           var rest = valueRegion(after);
           // A bool value that names a med section ("Current Hypertension
           // Medications") is a header, not a Yes/No answer — defer to inference,
@@ -189,6 +198,12 @@
     // drop parentheticals AND bracketed ranges: "(125-200)", "[70-99]" — these are
     // reference ranges, dates, or eAG annotations, never the reported value.
     s = s.replace(/\([^)]*\)/g, " ").replace(/\[[^\]]*\]/g, " ");
+    // European decimal comma ("5,4 mmol/L"): a comma between digits with only 1–2
+    // digits after it is a decimal separator, not a thousands separator. Without
+    // this the value silently TRUNCATES to 5 — a wrong number that still computes.
+    // Gated on an SI unit in the same value region, so US thousands ("1,234 mg/g")
+    // and comma-separated lists are untouched.
+    if (/mmol/i.test(s)) s = s.replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2");
     var re = allowThousands
       ? /([<>≤≥])?\s*(\d[\d,]*(?:\.\d+)?)/
       : /([<>≤≥])?\s*(\d+(?:\.\d+)?)/;
@@ -259,6 +274,14 @@
       }
       if (result === null) continue;
       if (opts.requireUnit && !opts.requireUnit.test(unitScope)) continue;
+      // reject when a COMPETING analyte name sits between the label and the number:
+      // "Cholesterol, HDL, P*  52" must not satisfy a total-cholesterol scan just
+      // because it starts with "Cholesterol". badWords only looks BEHIND the label,
+      // so this is the forward-looking half of the same guard.
+      if (opts.rejectBetween) {
+        var dIdx = unitScope.search(/\d/);
+        if (opts.rejectBetween.test(dIdx >= 0 ? unitScope.slice(0, dIdx) : unitScope)) continue;
+      }
       var n = result.value;
       if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
       return { value: n, threshold: result.threshold };
@@ -357,7 +380,11 @@
       var am = A1C_ANCHOR.exec(lines[i]);
       if (!am) continue;
       for (var j = i; j < Math.min(lines.length, i + 5); j++) {
-        if (j > i && (lines[j].trim() === "" || A1C_STOP.test(lines[j]))) break; // stay in the result block
+        // Stay inside the result block: stop at a blank line, the diagnostic-cutoff
+        // comment, or a medication line — "lisinopril 20 MG tablet" a few lines below
+        // an A1c mentioned in a parenthetical would otherwise yield an "A1c" of 20.
+        if (j > i && (lines[j].trim() === "" || A1C_STOP.test(lines[j]) ||
+            /\b(?:mg|mcg|g|ml|tab(?:let)?s?|cap(?:sule)?s?|daily|bid|tid|qid|qhs|units?|po\b|prn)\b/i.test(lines[j]))) break;
         var v = a1cValueInLine(lines[j], j === i ? am.index + am[0].length : 0);
         if (v !== null) return v;
       }
@@ -373,14 +400,28 @@
   // and no inline content) above a given text position. Used to scope drug
   // and diabetes detection so allergy/family-history sections don't trigger
   // false positives.
+  // Section titles Epic prints WITHOUT a trailing colon. sectionAbove needs these
+  // to know that "Family History" (bare) opens a section and "Patient Active
+  // Problem List" (bare) closes it.
+  var SECTION_TITLE_RE = /^(?:patient\s+)?(?:active\s+)?(?:family\s+(?:history|hx)|social\s+(?:history|hx)|problem\s+list|past\s+medical\s+history|medical\s+history|current\s+(?:outpatient\s+)?medications?|medications?|allergies|health\s+maintenance|resolved\s+problems?|inactive\s+problems?|discontinued\s+medications?|meds|ob\s+history|surgical\s+history|tobacco\s+use|substance\s+use|review\s+of\s+systems|assessment(?:\s+and\s+plan)?)$/i;
+
   function sectionAbove(text, pos) {
     // Only COMPLETE lines above the current one count: slicing mid-line would turn
     // the current line's own prefix ("  Father: ") into a bogus header and hide the
     // real section ("Family History:") above it.
     var chunk = text.slice(0, text.lastIndexOf("\n", pos - 1) + 1);
-    var re = /(?:^|\n)[ \t]*([^\n:]{1,60})\s*:\s*$/gm;
+    var re = /(?:^|\n)[ \t]*([^\n]{1,60}?)[ \t]*(:)?[ \t]*(?=\n|$)/g;
     var last = null, m;
-    while ((m = re.exec(chunk)) !== null) last = m[1].trim().toLowerCase();
+    while ((m = re.exec(chunk)) !== null) {
+      var title = m[1].trim();
+      // A header either ends with ":" ("Family History:") or is one of the
+      // standard Epic section titles, which print with NO colon at all
+      // ("Family History", "Patient Active Problem List"). Without the
+      // colon-less form, a family-history TABLE looks like it has no section
+      // and the relatives' diagnoses get read as the patient's.
+      if (!m[2] && !SECTION_TITLE_RE.test(title)) continue;
+      if (title) last = title.toLowerCase();
+    }
     return last || "";
   }
 
@@ -410,9 +451,9 @@
     var TC_PAT = "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)";
     var HDL_PAT = "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)";
     var LDL_PAT = "(?:\\bldl(?:[\\s-]?c)?\\b(?:\\s*(?:chol\\w*|calc\\w*|direct))?|low[\\s-]?density\\s+lipoprotein)";
-    var TC_OPTS = { badWords: ["hdl", "ldl", "vldl", "non"], noSlashAfter: true, allowNextLine: true };
+    var TC_OPTS = { badWords: ["hdl", "ldl", "vldl", "non"], rejectBetween: /hdl|ldl|non/i, noSlashAfter: true, allowNextLine: true };
     var HDL_OPTS = { badWords: ["non"], noSlashBefore: true, allowNextLine: true };
-    var LDL_OPTS = { badWords: ["non"], noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, allowNextLine: true };
+    var LDL_OPTS = { badWords: ["non"], rejectBetween: /\bhdl\b|non/i, noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, allowNextLine: true };
     function ranged(o, min, max, extra) { var r = Object.assign({}, o, { min: min, max: max }); if (extra) Object.assign(r, extra); return r; }
     // Units: mg/dL first (the Epic default). If no mg/dL-magnitude total is labeled,
     // retry as an SI panel ("Total cholesterol: 5.4 mmol/L") — a small-magnitude
@@ -439,15 +480,36 @@
     // Ratio: 12" is never read as a serum creatinine of 12.
     if (found.egfr === undefined && out.age != null && out.sex) {
       // "\bs?cr\b" also matches the "SCr" (serum creatinine) shorthand.
-      var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b|\\bs?cr\\b)(?!\\s*(?:cl\\b|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio", "micro"], rejectLine: /album|ratio|\buacr\b|urine|clearance|kinase/i, noSlashBefore: true, min: 0.2, max: 15 });
+      var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b|\\bs?cr\\b)(?!\\s*(?:cl\\b|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio", "micro"], rejectLine: /album|ratio|\buacr\b|urine|clearance|kinase|\baki\b|acute\s+kidney|baseline|resume\s+when|\bgoal\b|\btarget\b/i, noSlashBefore: true, min: 0.2, max: 15 });
       if (crResult !== null) {
         var e = ckdEpi2021(crResult.value, out.age, out.sex);
         if (e !== null) { out.egfr = e; found.egfr = "computed_from_cr"; }
       } else {
-        // µmol/L (SI units): explicit unit required, value ~40–1200; convert /88.4.
-        var mu = text.match(/(?:creatinine|creat|\bs?cr\b)[^\n]{0,14}?([<>≤≥]?\s*\d{2,4})\s*(?:µmol|umol|μmol)/i);
-        if (mu) {
-          var e2 = ckdEpi2021(parseFloat(mu[1].replace(/[^\d.]/g, "")), out.age, out.sex, "umol");
+        // µmol/L (SI units): explicit unit required on the line; convert /88.4.
+        // Line-scoped rather than a character window, because an SI result row puts
+        // the unit in a REFERENCE-RANGE column ("Creatinine  97  44 - 106 umol/L
+        // Final"). A character-window match there grabs 106 — the range's high
+        // bound — and computes a confidently wrong eGFR; the same window also let
+        // "Albumin/Creatinine Ratio 12 umol/mmol" produce an eGFR of 149. So: skip
+        // ratio/urine/clearance lines, mask parentheticals, ranges, dates and times,
+        // then take the FIRST surviving number, which is the reported result. The
+        // unit is checked on the RAW line so a unit inside the label
+        // ("Creatinine (umol/L): 88") still counts.
+        var muLines = text.split(/\n/);
+        for (var mi = 0; mi < muLines.length && found.egfr === undefined; mi++) {
+          var rawLn = muLines[mi];
+          if (!/(?:^|[^a-z\/])(?:creatinine|creat|s?cr)\b/i.test(rawLn)) continue;
+          if (/album|ratio|urine|uacr|clearance|kinase|micro/i.test(rawLn)) continue;
+          if (!/µmol|umol|μmol/i.test(rawLn)) continue;
+          var mLn = rawLn.replace(/\([^)]*\)/g, " ")
+                         .replace(/\d[\d.,]*\s*[-–]\s*\d[\d.,]*/g, " ")
+                         .replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g, " ")
+                         .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, " ");
+          var mNum = mLn.match(/\d{2,4}(?:\.\d+)?/);
+          if (!mNum) continue;
+          var mVal = parseFloat(mNum[0]);
+          if (!(mVal >= 20 && mVal <= 1500)) continue;
+          var e2 = ckdEpi2021(mVal, out.age, out.sex, "umol");
           if (e2 !== null) { out.egfr = e2; found.egfr = "computed_from_cr"; }
         }
       }
@@ -463,7 +525,7 @@
   // Generic names first, then common US brand names — a med list may print either.
   var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine|norvasc|cozaar|hyzaar|diovan|benicar|micardis|avapro|atacand|teveten|edarbi|lopressor|toprol|tenormin|coreg|bystolic|corgard|sectral|cardizem|cartia|tiazac|calan|verelan|isoptin|covera|adalat|procardia|sular|plendil|cardene|lasix|microzide|aldactone|inspra|bumex|demadex|edecrin|zaroxolyn|lozol|catapres|lotrel|zestril|prinivil|vasotec|altace|accupril|monopril|mavik|aceon|univasc|lotensin|capoten|cardura|hytrin|minipress|aldomet|tekturna|apresoline|loniten|dyazide|maxzide|tenoretic|exforge|tribenzor|azor|twynsta|amturnide)\b/i;
   // Lines that mean a drug is NOT actually being taken.
-  var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|held\b|not taking|declined/i;
+  var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|\bhold(?:ing|s)?\b|\bheld\b|not\s+tak(?:ing|en)|hasn'?t\s+taken|ran\s+out|declined/i;
   // Narrower set for the NEXT-line check: only true discontinuation signals, NOT
   // "allerg"/"adverse" (those would false-trigger on an "Allergies:" header that
   // simply follows the last active med).
@@ -471,26 +533,41 @@
   // Explicit "no meds" statements from focused SmartLinks — e.g. @HTNMEDS@ ->
   // "No current hypertension medications", @STATINS@ -> "No current hyperlipidemia
   // medications". These are affirmative negatives, so we can set the flag to false.
-  var NO_HTN_MEDS = /\bno\b[^.\n]{0,28}(?:hypertension|htn|blood[- ]?pressure|anti-?hypertensive)[^.\n]{0,18}(?:medication|meds\b|agents?|drugs?|rx)/i;
-  var NO_LIPID_MEDS = /\bno\b[^.\n]{0,28}(?:hyperlipidemia|lipid|cholesterol|statin)[^.\n]{0,18}(?:medication|meds\b|agents?|drugs?|rx)/i;
+  // The filler between "no" and the drug class is limited to list qualifiers, so
+  // "no CHANGES to HTN meds" and "no PROBLEMS with cholesterol medication" — both
+  // of which describe an ACTIVE regimen — are not misread as an empty list.
+  var NO_QUAL = "(?:\\s+(?:current|active|home|outpatient|prescribed|known|other|listed))*\\s+";
+  var NO_HTN_MEDS = new RegExp("\\bno" + NO_QUAL + "(?:hypertension|htn|blood[- ]?pressure|anti-?hypertensive)\\s+(?:medication|meds\\b|agents?|drugs?|rx)", "i");
+  var NO_LIPID_MEDS = new RegExp("\\bno" + NO_QUAL + "(?:hyperlipidemia|lipid|cholesterol|statin)\\s+(?:medication|meds\\b|agents?|drugs?|rx)", "i");
+  // Epic's blanket empty-list print ("No current outpatient medications on file")
+  // rules out BOTH an antihypertensive and a statin.
+  var NO_MEDS_AT_ALL = new RegExp("\\bno" + NO_QUAL + "medications?\\b", "i");
 
   // Section headers used by detectDrug to skip allergy sections.
-  var ALLERGY_HDR = /\b(?:allerg|adverse\s+reaction|sensitivit|intolerance)/i;
+  var ALLERGY_HDR = /\b(?:allerg\w*|adverse\s+reaction|sensitivit\w*|intoleran\w*|discontinued|inactive|prior|previous|historical|past)\b/i;
 
   function detectDrug(text, re) {
     var lines = text.split(/\n/);
-    var inAllergySection = false;
+    var skipSection = false;
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
-      // Track section transitions from standalone headers ("Allergies:", "Medications:")
-      if (/^\s*[^\n:]{1,60}\s*:\s*$/.test(line)) {
-        var header = line.replace(/^\s+/, "");
-        if (ALLERGY_HDR.test(header)) { inAllergySection = true; continue; }
-        else { inAllergySection = false; }
+      // Track section transitions. A header either ends with ":" ("Allergies:") or
+      // is a standard Epic title printed bare ("Allergies", "Discontinued
+      // Medications", "Meds") — without the colon-less form, an allergy TABLE never
+      // ends and its allergens get read as active drugs.
+      var bare = line.trim();
+      if (/^[^\n:]{1,60}:$/.test(bare) || SECTION_TITLE_RE.test(bare.replace(/:$/, ""))) {
+        skipSection = ALLERGY_HDR.test(bare); continue;
       }
-      if (inAllergySection) continue;
-      if (DRUG_SKIP_LINE.test(line)) continue;
-      var m = line.match(re);
+      if (skipSection) continue;
+      // A stop word inside a PARENTHETICAL describes a different, prior drug
+      // ("rosuvastatin 10 mg daily (was on atorvastatin, stopped 2024)"), so the
+      // line is judged — and the drug matched — on what sits outside the parens.
+      var outside = line.replace(/\([^)]*\)/g, " ");
+      if (DRUG_SKIP_LINE.test(outside)) continue;      // the line itself is inactive
+      // Stop word ONLY inside the parens => it describes a prior drug, so match on
+      // what's outside. Otherwise the parens may hold the active drug, so keep them.
+      var m = (DRUG_SKIP_LINE.test(line) ? outside : line).match(re);
       if (m) {
         // Look one line ahead: if the next line is an indented discontinuation
         // note ("  Discontinued 2024-01-15"), this drug is not active — skip it.
@@ -504,112 +581,179 @@
     return null;
   }
 
-  var DM_NEG = /\b(?:no|denies|denied|without|negative for|rule[d]? out|r\/o|family (?:history|hx)|fhx|gestational|borderline|impaired|screen\w*|risk (?:of|for))\b[^.\n]{0,18}$/;
-  function detectDiabetes(text) {
+  // ---- Who does this mention belong to? ---------------------------------
+  // A paste mixes the patient's diagnoses with relatives' (family history),
+  // allergies, and resolved problems. Reading a relative's diabetes as the
+  // patient's inflates the risk score and flips the guideline pathway, so every
+  // diagnosis detector below is guarded by these.
+  var RELATIVE_RE = /\b(?:mother|father|mom|dad|parents?|sisters?|brothers?|siblings?|sons?|daughters?|aunts?|uncles?|cousins?|grand(?:mother|father|parents?|ma|pa)|maternal|paternal|spouse|wife|husband|partner)\b/i;
+  var FAMILY_CUE_RE = /\b(?:family\s*(?:history|hx|h\/o)|fhx|famhx|fam\s*hx)\b/i;
+
+  // True when the mention at `idx` describes someone OTHER than the patient:
+  // it sits in a family-history section, under a per-relative sub-header
+  // ("Mother:"), or the same line names the family before it
+  // ("FHx: T2DM (mother)", "Family History: Mother (alive, 78) - type 2 diabetes").
+  function isFamilyContext(text, idx) {
+    var sec = sectionAbove(text, idx);
+    if (FAMILY_CUE_RE.test(sec) || RELATIVE_RE.test(sec)) return true;
+    var lnStart = text.lastIndexOf("\n", idx - 1) + 1;
+    var before = text.slice(lnStart, idx);
+    if (FAMILY_CUE_RE.test(before)) return true;
+    // "Father: lung cancer (smoker)" — a relative named earlier on the line, with a
+    // separator after it, owns what follows.
+    var rel = RELATIVE_RE.exec(before);
+    if (rel && /[-:(,]/.test(before.slice(rel.index + rel[0].length))) return true;
+    return false;
+  }
+  function lineAround(text, idx) {
+    var s = text.lastIndexOf("\n", idx) + 1;
+    var e = text.indexOf("\n", idx); if (e < 0) e = text.length;
+    return text.slice(s, e);
+  }
+
+  // ---- Diabetes ----------------------------------------------------------
+  // Negating words just BEFORE a mention. The tail allowance is 45 characters so
+  // real phrasings fit ("No personal history of diabetes"); the old 18 cut off
+  // mid-phrase and let the mention through as a diagnosis.
+  var DM_NEG = /\b(?:no|not|denies|denied|without|negative\s+for|rule[d]?\s+out|r\/o|family\s+(?:history|hx)|fhx|gestational|borderline|impaired|screen\w*|risk\s+(?:of|for))\b[^.\n]{0,45}$/i;
+  // NOT a current diagnosis of this patient — a confident No.
+  var DM_NOTDX_LINE = /\bscreening\b|health\s+maintenance|diabetic[^a-z\n]{0,3}(?:diet|education|educator|teaching|supplies|foot\s+exam)|diabetes\s+education|\bgdm\b|gestational/i;
+  // A PAST or MERELY POSSIBLE diagnosis. These make the answer ambiguous rather
+  // than No: the field is left blank for the clinician instead of being asserted.
+  var DM_AMBIG_LINE = /\bresolved\b|\bin\s+remission\b|\bremission\b|diabetic\s+range/i;
+
+  // Returns { state: "yes"|"ambiguous"|"none", evidence }.
+  function diabetesSignal(text) {
+    var ambiguous = false;
+    // Shared guards for one mention. Returns "skip", "ambiguous", or null (= keep).
+    function guard(start, wordLen) {
+      var pre = text.slice(Math.max(0, start - 60), start);
+      var after = text.slice(start + wordLen);
+      var line = lineAround(text, start);
+      if (/pre-?\s*$/i.test(pre)) return "skip";                 // pre-diabetes / Pre-DM
+      if (/\bnon-?\s*$/i.test(pre)) return "skip";               // non-diabetic
+      if (/[=]\s*$/.test(pre)) return "skip";                    // legend ">6.4% = diabetes"
+      if (DM_NEG.test(pre)) return "skip";
+      if (/^\s*[:*?]/.test(after)) return "skip";                // "Diabetes:" label, "Diabetes?" form
+      if (/^\s*(?:screen\w*|education|educator|teaching|supplies)/i.test(after)) return "skip";
+      if (/^\s*(?:ruled?\s+out|r\/o)/i.test(after)) return "skip";
+      if (/a1c|h[ae]moglobin/i.test(line) && /cutoff|diagnos|=\s*normal|increased\s+risk/i.test(line)) return "skip";
+      if (isFamilyContext(text, start)) return "skip";
+      if (/\b(?:allerg|adverse)/i.test(sectionAbove(text, start))) return "skip";
+      if (DM_NOTDX_LINE.test(line)) return "skip";               // screening / diet / education / GDM
+      if (DM_AMBIG_LINE.test(line) || /\bresolved\b|\binactive\b/i.test(sectionAbove(text, start))) return "ambiguous";
+      return null;
+    }
+    function run(re, label) {
+      var m;
+      re.lastIndex = 0;
+      while ((m = re.exec(text)) !== null) {
+        if (m.index === re.lastIndex) re.lastIndex++;
+        var g = guard(m.index, m[0].length);
+        if (g === "ambiguous") { ambiguous = true; continue; }
+        if (g) continue;
+        var got = label(m, text.slice(m.index, m.index + 44).toLowerCase());
+        if (got) return got;
+      }
+      return null;
+    }
     // spelled out: "...diabet(es/ic)..."
-    var re = /\bdiabet\w*/gi, m;
-    while ((m = re.exec(text)) !== null) {
-      var start = m.index, word = m[0];
-      var ctx = text.slice(start, start + 44).toLowerCase();
-      if (/^diabet\w*\s*insipidus/.test(ctx)) continue;             // DI is not DM
-      if (/^[:*]/.test(text.slice(start + word.length).replace(/^\s+/, ""))) continue; // "Diabetes:" label
-      // Extended lookback (60 chars) catches "Family History: Mother had diabetes"
-      var pre = text.slice(Math.max(0, start - 60), start).toLowerCase();
-      if (/pre-?\s*$/.test(pre)) continue;                          // pre-diabetes
-      if (DM_NEG.test(pre)) continue;
-      if (/[=]\s*$/.test(pre)) continue;                            // legend ">6.4% = diabetes"
-      // Skip the A1c diagnostic-cutoff COMMENT ("HbA1c cutoffs for diagnosing
-      // diabetes ... = normal ... increased risk for diabetes"): educational text,
-      // not a diagnosis. Requires an A1c label AND a definitional marker on the
-      // line, so a real "Type 2 diabetes, goal A1c <7" problem entry is unaffected.
-      var lnS = text.lastIndexOf("\n", start) + 1;
-      var lnE = text.indexOf("\n", start); if (lnE < 0) lnE = text.length;
-      var dline = text.slice(lnS, lnE).toLowerCase();
-      if (/a1c|h[ae]moglobin/.test(dline) && /cutoff|diagnos|=\s*normal|increased\s+risk/.test(dline)) continue;
-      // Section awareness: skip family history and allergy sections
-      var section = sectionAbove(text, start);
-      if (/\b(?:family|fhx|allerg|adverse)/i.test(section)) continue;
-      var scope = pre + " " + ctx;
+    var hit = run(/\bdiabet\w*/gi, function (m, ctx) {
+      if (/^diabet\w*\s*insipidus/.test(ctx)) return null;       // DI is not DM
+      var scope = text.slice(Math.max(0, m.index - 60), m.index).toLowerCase() + " " + ctx;
       if (/type\s*2|type\s*ii\b|t2dm|dm\s*2/.test(scope)) return "Type 2 diabetes";
       if (/type\s*1|type\s*i\b|t1dm|dm\s*1/.test(scope)) return "Type 1 diabetes";
       if (/diabetic\s*(?:nephropathy|retinopathy|neuropathy|ketoacidosis|foot|ulcer)/.test(ctx)) return (ctx.match(/diabetic\s*\w+/) || ["diabetic"])[0];
       if (/mellitus/.test(ctx)) return "Diabetes mellitus";
       return "Diabetes";
-    }
-    // abbreviations: T2DM, DM2, "type 2 DM"
-    var a = text.match(/\b(?:type\s*[12]\s*dm|dm\s*(?:type\s*)?[12]|t[12]dm)\b/i);
-    if (a) {
-      var aPre = text.slice(Math.max(0, a.index - 60), a.index).toLowerCase();
-      if (!DM_NEG.test(aPre)) {
-        var aSec = sectionAbove(text, a.index);
-        if (!/\b(?:family|fhx|allerg|adverse)/i.test(aSec))
-          return /1/.test(a[0]) ? "Type 1 diabetes" : "Type 2 diabetes";
-      }
-    }
-    // clinical name-abbreviations without a digit: NIDDM (type 2), IDDM (type 1),
-    // DMII / DM II (type 2), DMI / DM I (type 1). These contain no "diabet" or
-    // digit, so the loops above miss them — a real gap that yields a false "No".
-    var b = text.match(/\b(?:niddm|iddm|dm\s*i{1,2}|dmi{1,2})\b/i);
-    if (b) {
-      var bPre = text.slice(Math.max(0, b.index - 60), b.index).toLowerCase();
-      if (!DM_NEG.test(bPre)) {
-        var bSec = sectionAbove(text, b.index);
-        if (!/\b(?:family|fhx|allerg|adverse)/i.test(bSec)) {
-          var tok = b[0].toLowerCase().replace(/\s+/g, "");
-          // niddm & dmii/dm-ii => type 2; iddm & dmi/dm-i => type 1
-          if (tok === "niddm" || tok === "dmii") return "Type 2 diabetes";
-          if (tok === "iddm" || tok === "dmi") return "Type 1 diabetes";
-        }
-      }
-    }
-    // standalone uppercase DM (clinical shorthand)
-    var d = text.match(/\bDM\b/);
-    if (d && text.charAt(d.index + 2) !== ":") {
-      var dPre = text.slice(Math.max(0, d.index - 60), d.index).toLowerCase();
-      if (!DM_NEG.test(dPre)) {
-        var dSec = sectionAbove(text, d.index);
-        if (!/\b(?:family|fhx|allerg|adverse)/i.test(dSec))
-          return "Diabetes (DM)";
-      }
+    });
+    // Abbreviations. Each loops over EVERY occurrence: a relative's "T2DM" early in
+    // the paste must not suppress the patient's own diagnosis further down.
+    if (!hit) hit = run(/\b(?:type\s*[12]\s*dm|dm\s*(?:type\s*)?[12]|t[12]dm)\b/gi,
+      function (m) { return /1/.test(m[0]) ? "Type 1 diabetes" : "Type 2 diabetes"; });
+    // NIDDM / IDDM / DMII — no "diabet" and no digit, so the loops above miss them.
+    if (!hit) hit = run(/\b(?:niddm|iddm|dm\s*i{1,2}|dmi{1,2})\b/gi, function (m) {
+      var tok = m[0].toLowerCase().replace(/\s+/g, "");
+      if (tok === "niddm" || tok === "dmii") return "Type 2 diabetes";
+      if (tok === "iddm" || tok === "dmi") return "Type 1 diabetes";
+      return null;
+    });
+    // standalone uppercase DM (clinical shorthand) — case-sensitive on purpose.
+    if (!hit) hit = run(/\bDM\b/g, function () { return "Diabetes (DM)"; });
+    if (hit) return { state: "yes", evidence: hit };
+    return { state: ambiguous ? "ambiguous" : "none", evidence: null };
+  }
+  // Back-compat wrapper: evidence string when the patient has diabetes, else null.
+  function detectDiabetes(text) {
+    var s = diabetesSignal(text);
+    return s.state === "yes" ? s.evidence : null;
+  }
+
+  // ---- Smoking -----------------------------------------------------------
+  // Negation immediately before a positive match ("not a current smoker").
+  var SMOKE_NEG = /\b(?:not?|never|neither|deny|denies|denied|no longer|non|former|ex|passive|second-?hand|isn't|is\s+not|not\s+a|was\s+not|doesn't|does\s+not)-?\s*$/i;
+  // Lines whose smoking words belong to something else: a different tobacco route,
+  // someone else's smoke, or a non-tobacco substance.
+  var SMOKE_OTHER_LINE = /smokeless|chew(?:ing|s)?|\bsnuff\b|\bdip\b|passive|second-?hand|marijuana|cannabis|\bthc\b|\bvap\w+|e-?cig|hookah|\bcigars?\b|other\s+tobacco\s+product|f17\.29/i;
+  // Lines where the smoking words describe HISTORY, not current use.
+  var SMOKE_PAST_LINE = /\bquit\b|\bformer\b|\bex-?\s*smok|in\s+the\s+past|pack-?\s*years?|\bhistory\s+of\b|\bh\/o\b|no\s+longer|\bremission\b|\bresolved\b/i;
+
+  // An explicit cigarette-status line. When Epic prints one it is AUTHORITATIVE:
+  // it outranks any stray "ppd" or "smoker" elsewhere in the paste (a spouse's
+  // passive-exposure line, a relative's history, a former smoker's pack-year
+  // detail). "Smokeless tobacco:" cannot match — it is a different axis.
+  function smokingStatusLine(text) {
+    var re = /\b(?:smoking\s+status|cigarette\s+(?:use|status)|tobacco\s+use\s+status)\b\s*[:?]?\s*([^\n]*)/gi, m;
+    while ((m = re.exec(text)) !== null) {
+      var val = (m[1] || "").trim();
+      if (!val) continue;
+      // "Never Assessed" / "Not Assessed" / "Smoker, Current Status Unknown" are
+      // Epic's missing-data options. They are NOT a clinical answer, and because the
+      // word "Never"/"Smoker" is right there they would otherwise be misread in both
+      // directions — so they stop the search and leave the field blank.
+      if (MISSING_DATA.test(val) || /\b(?:never|not)\s+assessed\b|\bunknown\b|\bnot\s+documented\b/i.test(val))
+        return { value: null, evidence: m[0].trim() };
+      if (/\b(?:never|former|quit|denies|none|no|non-?\s*smoker|passive)\b/i.test(val))
+        return { value: false, evidence: m[0].trim() };
+      if (/\b(?:current|every\s*day|some\s*day|daily|active|yes|smoker)\b/i.test(val))
+        return { value: true, evidence: m[0].trim() };
     }
     return null;
   }
 
-  // Negation context: these words immediately before a positive smoking match
-  // mean the match is negated ("not a current smoker", "denies smoking").
-  var SMOKE_NEG = /\b(?:not?|never|neither|deny|denies|denied|no longer|non|former|ex|passive|second-?hand|isn't|is\s+not|not\s+a|was\s+not|doesn't|does\s+not)-?\s*$/i;
-
   function detectSmoking(text) {
-    // Iterate all positive matches — skip any that are negated in context.
-    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b|smokers?\b(?!\s*[:*]))/gi;
+    // 1) explicit status wins outright
+    var st = smokingStatusLine(text);
+    if (st) return st.value === null ? null : st;
+    // 2) current-use signals, each guarded by its own line's context
+    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*?])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b|smokers?\b(?!\s*[:*?])(?!['’]s))/gi;
     var cur, negatedEvidence = null;
     while ((cur = curRe.exec(text)) !== null) {
       var pre = text.slice(Math.max(0, cur.index - 25), cur.index);
-      if (SMOKE_NEG.test(pre)) {
-        if (!negatedEvidence) negatedEvidence = cur[0].trim();
-        continue;
-      }
+      var line = lineAround(text, cur.index);
+      if (SMOKE_NEG.test(pre)) { if (!negatedEvidence) negatedEvidence = cur[0].trim(); continue; }
+      if (SMOKE_OTHER_LINE.test(line)) continue;          // smokeless / passive / marijuana / vaping
+      if (SMOKE_PAST_LINE.test(line)) { if (!negatedEvidence) negatedEvidence = cur[0].trim(); continue; }
+      if (/smokers?['’]s?\s+cough/i.test(line)) continue; // a symptom, not a status
+      if (isFamilyContext(text, cur.index)) continue;     // the relative's habit
+      if (/\b(?:allerg|adverse|resolved|inactive)/i.test(sectionAbove(text, cur.index))) continue;
       return { value: true, evidence: cur[0].trim() };
     }
-    // Non-smoker signals. Include "Tobacco: Never/Former/Quit" (a very common Epic
-    // social-hx print) but NOT "Smokeless tobacco: Never" (that's a different axis
-    // and shouldn't decide cigarette status), and allow a qualifier between
-    // "former" and "smoker" ("former cigarette smoker").
-    var non = text.match(/\b(?:never\s*smok\w*|former\s+(?:cigarette|tobacco|cigar)?\s*smoker|ex-?\s*smoker|non-?\s*smoker|smoking\s+status\s*:?\s*(?:never|former|quit)|(?<!smokeless\s)tobacco(?:\s*use|\s*status)?\s*:?\s*(?:never|former|quit)|quit\s+smoking|denies\s+tobacco|no\s+tobacco)\b/i);
+    // 3) explicit non-smoking wording
+    var non = text.match(/\b(?:never\s*smok\w*|former\s+(?:cigarette|tobacco|cigar)?\s*smoker|ex-?\s*smoker|non-?\s*smoker|non-?\s*tobacco|smoking\s+status\s*:?\s*(?:never|former|quit)|(?<!smokeless\s)tobacco(?:\s*use|\s*status)?\s*:?\s*(?:never|former|quit|no(?:ne)?)|quit\s+smoking|quit\s+(?:in\s+)?(?:19|20)\d{2}|denies\s+(?:tobacco|cigarettes?|smoking)|no\s+(?:current\s+)?tobacco|no\s+(?:\w+\s+){0,2}cigarettes?)\b/i);
     if (non) return { value: false, evidence: non[0].trim() };
-    // A negated positive ("not a current smoker") is evidence of non-smoking
+    // 4) a negated positive ("not a current smoker", "1 ppd ... quit 2010")
     if (negatedEvidence) return { value: false, evidence: "negated: " + negatedEvidence };
-    // Problem-list diagnoses (ICD-10 F17.2x / Z72.0 wording): "Nicotine dependence,
-    // cigarettes", "Tobacco use disorder". Checked LAST so an explicit social-history
-    // status ("Former") outranks a possibly stale problem-list entry. Skipped when
-    // the line says remission / history-of / former / quit, or the entry sits in a
-    // family-history or allergy section.
+    // 5) problem-list diagnoses (ICD-10 F17.2x / Z72.0). Checked LAST so an explicit
+    //    social-history status outranks a possibly stale problem-list entry; skipped
+    //    when the line or section says remission / history-of / resolved.
     var dxRe = /\b(?:nicotine\s+dependence|tobacco\s+(?:use\s+disorder|dependence|abuse))\b/gi, dx;
     while ((dx = dxRe.exec(text)) !== null) {
-      var ls = text.lastIndexOf("\n", dx.index) + 1;
-      var le = text.indexOf("\n", dx.index); if (le < 0) le = text.length;
-      if (/remission|former|history|\bhx\b|h\/o|quit|prior|past|\bex-?\b/i.test(text.slice(ls, le))) continue;
-      if (/\b(?:family|fhx|allerg|adverse)/i.test(sectionAbove(text, dx.index))) continue;
+      var dline = lineAround(text, dx.index);
+      if (SMOKE_PAST_LINE.test(dline) || /\bprior\b|\bpast\b/i.test(dline)) continue;
+      if (SMOKE_OTHER_LINE.test(dline)) continue;
+      if (isFamilyContext(text, dx.index)) continue;
+      if (/\b(?:family|fhx|allerg|adverse|resolved|inactive)/i.test(sectionAbove(text, dx.index))) continue;
       return { value: true, evidence: dx[0].trim() };
     }
     return null;
@@ -627,6 +771,12 @@
 
   function inferFlags(text, out, found) {
     var inferred = {};
+    if (found.statin === undefined && NO_MEDS_AT_ALL.test(text) && !detectDrug(text, STATIN_RE)) {
+      out.statin = false; found.statin = "inferred"; inferred.statin = { value: false, evidence: "no medications on file" };
+    }
+    if (found.bp_tx === undefined && NO_MEDS_AT_ALL.test(text) && !detectDrug(text, ANTIHTN_RE)) {
+      out.bp_tx = false; found.bp_tx = "inferred"; inferred.bp_tx = { value: false, evidence: "no medications on file" };
+    }
     if (found.statin === undefined) {
       if (NO_LIPID_MEDS.test(text)) { out.statin = false; found.statin = "inferred"; inferred.statin = { value: false, evidence: "no lipid-lowering meds listed" }; }
       else { var s = detectDrug(text, STATIN_RE); if (s) { out.statin = true; found.statin = "inferred"; inferred.statin = { value: true, evidence: s }; } }
@@ -636,11 +786,13 @@
       else { var h = detectDrug(text, ANTIHTN_RE); if (h) { out.bp_tx = true; found.bp_tx = "inferred"; inferred.bp_tx = { value: true, evidence: h }; } }
     }
     if (found.dm === undefined) {
-      var d = detectDiabetes(text);
-      if (d) { out.dm = true; found.dm = "inferred"; inferred.dm = { value: true, evidence: d }; }
-      // No diabetes found, but a real problem list is present -> assume No, flag to verify.
-      // (If there's no problem list to rule it out, leave dm unset for the user.)
-      else if (hasProblemList(text)) { out.dm = false; found.dm = "inferred"; inferred.dm = { value: false, evidence: "not on problem list" }; }
+      var sig = diabetesSignal(text);
+      if (sig.state === "yes") { out.dm = true; found.dm = "inferred"; inferred.dm = { value: true, evidence: sig.evidence }; }
+      // "ambiguous" = diabetes IS mentioned, but as a resolved/remission/possible
+      // diagnosis ("Resolved Problems: Type 2 diabetes mellitus (resolved 2023)").
+      // That is neither a Yes nor a No, so leave it blank for the clinician rather
+      // than asserting "not on problem list" over the top of a real mention.
+      else if (sig.state === "none" && hasProblemList(text)) { out.dm = false; found.dm = "inferred"; inferred.dm = { value: false, evidence: "not on problem list" }; }
     }
     if (found.smoking === undefined) { var sm = detectSmoking(text); if (sm) { out.smoking = sm.value; found.smoking = "inferred"; inferred.smoking = sm; } }
     return inferred;
@@ -909,7 +1061,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, detectSmoking, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();

@@ -1,0 +1,420 @@
+[
+ {
+  "name": "fhx-epic-table-no-colon",
+  "text": "Age: 52\nSex: Female\nBP: 124/78\nFamily History\n Problem\t\tRelation\tAge of Onset\n . Diabetes\t\tMother\n . Hypertension\t\tFather\n . Breast cancer\t\tSister\t\t44\nPatient Active Problem List\n Diagnosis\n . Essential hypertension\n . Obesity, class 1\nCurrent Outpatient Medications\n . lisinopril 10 mg tablet\tTake 1 tablet by mouth daily",
+  "want": {
+   "dm": false,
+   "bp_tx": true,
+   "statin": null,
+   "age": 52,
+   "sex": "female",
+   "sbp": 124
+  },
+  "note": "Epic @FAMHX@ prints a 'Family History' header with no colon; the Diabetes row is the mother's. The patient's own problem list has no diabetes, so dm=No; lisinopril on the active med list gives bp_tx=Yes."
+ },
+ {
+  "name": "fhx-inline-relation-parenthetical",
+  "text": "Age: 47\nSex: Male\nBP: 118/74\nFamily History: Mother (alive, 78) - type 2 diabetes, hypertension; Father (deceased, 70) - MI at 65\nPast Medical History: GERD, seasonal allergies\nSocial History: Never smoker",
+  "want": {
+   "dm": false,
+   "smoking": false,
+   "bp_tx": null
+  },
+  "note": "A one-line family history where the relation and age sit between 'Family History' and 'type 2 diabetes'. The diabetes is the mother's; the PMH has no diabetes, so dm=No."
+ },
+ {
+  "name": "fhx-nested-relation-subheaders",
+  "text": "Age: 60\nSex: Female\nFamily History:\n  Mother:\n    Diabetes, hypertension\n  Father:\n    Coronary artery disease\nProblem List:\n  Hypothyroidism\n  Osteoarthritis",
+  "want": {
+   "dm": false
+  },
+  "note": "Multi-line family-history section with per-relative sub-headers ('Mother:'). The diabetes belongs to the mother; the patient's problem list has none, so dm=No."
+ },
+ {
+  "name": "fhx-notable-for-no-problem-list",
+  "text": "Age: 44\nSex: Female\nBMI: 24.1\nFamily history notable for type 2 diabetes in her mother and hypertension in her father.\nTotal cholesterol: 182\nHDL: 61",
+  "want": {
+   "dm": null,
+   "total_c": 182,
+   "hdl_c": 61,
+   "bmi": 24.1
+  },
+  "note": "Prose family history ('notable for type 2 diabetes in her mother') - not the patient's diagnosis. No problem list exists to rule diabetes out, so dm must stay blank."
+ },
+ {
+  "name": "fhx-zcode-on-problem-list-control",
+  "text": "Age: 55\nSex: Male\nPatient Active Problem List:\n  Essential hypertension\n  Family history of diabetes mellitus (Z83.3)\n  Hyperlipidemia\nHTN Meds: Current Hypertension Medications\n  amLODIPine 5 MG tablet",
+  "want": {
+   "dm": false,
+   "bp_tx": true,
+   "statin": null
+  },
+  "note": "The Z83.3 problem-list entry is a family-history code, not the patient's diabetes; the list is real and has no DM, so dm=No. Amlodipine under the HTN meds SmartLink gives bp_tx=Yes."
+ },
+ {
+  "name": "no-personal-history-of-diabetes",
+  "text": "Age: 49\nSex: Male\nPMH: HTN, HLD. No personal history of diabetes; mother with T2DM.\nMeds: losartan 50 mg daily, rosuvastatin 10 mg nightly\nSocial: never smoker",
+  "want": {
+   "dm": false,
+   "bp_tx": true,
+   "statin": true,
+   "smoking": false
+  },
+  "note": "'No personal history of diabetes' is an explicit negation and the T2DM is the mother's; the PMH is a real list without DM, so dm=No."
+ },
+ {
+  "name": "non-diabetic-non-smoker-prose",
+  "text": "Age: 63\nSex: Female\nBP: 132/80\nNon-diabetic, non-smoker. PMH significant for HTN and osteoporosis.\nLabs: Chol 204, HDL 58, LDL 121, Cr 0.8",
+  "want": {
+   "dm": false,
+   "smoking": false,
+   "total_c": 204,
+   "hdl_c": 58,
+   "ldl_c": 121
+  },
+  "note": "'Non-diabetic' is a negation (the hyphen must not be read as a word boundary that exposes 'diabetic'); PMH is present without DM, so dm=No; 'non-smoker' gives smoking=No."
+ },
+ {
+  "name": "pre-dm-abbreviation",
+  "text": "Age: 58\nSex: Male\nProblem List:\n  Pre-DM (A1c 6.0 on 03/2026)\n  Essential hypertension\n  Obesity\nA1c: 6.0",
+  "want": {
+   "dm": false,
+   "hba1c": 6
+  },
+  "note": "'Pre-DM' is the problem-list shorthand for prediabetes, exactly like 'pre-diabetes' which the parser already excludes; the list has no diabetes, so dm=No."
+ },
+ {
+  "name": "diabetic-range-repeat-to-confirm",
+  "text": "Age: 51\nSex: Female\nA1c 6.6 today, in the diabetic range; will repeat to confirm.\nBP 128/82",
+  "want": {
+   "dm": null,
+   "hba1c": 6.6,
+   "sbp": 128
+  },
+  "note": "One A1c in the 'diabetic range' with a plan to repeat is not a diagnosis of diabetes, and there is no problem list; dm must stay blank for the clinician to decide."
+ },
+ {
+  "name": "diabetic-diet-steroid-hyperglycemia",
+  "text": "Age: 66\nSex: Male\nProblem List:\n  Steroid-induced hyperglycemia\n  COPD exacerbation, on prednisone taper\n  Essential hypertension\nDiet: consistent carbohydrate (diabetic) diet\nDiabetes education referral placed for dietary counseling.",
+  "want": {
+   "dm": false
+  },
+  "note": "A 'diabetic diet' order and a diabetes-education referral are given for steroid-induced hyperglycemia in a patient whose problem list has no diabetes; dm=No."
+ },
+ {
+  "name": "health-maintenance-diabetes-screening",
+  "text": "Age: 45\nSex: Male\nBP: 126/80\nHealth Maintenance:\n  Diabetes Screening\t\tDue 11/2026\n  Lipid Screening\t\tCompleted 03/2026\n  Colorectal Cancer Screening\tDue 2031\nProblem List:\n  Allergic rhinitis\n  Low back pain",
+  "want": {
+   "dm": false,
+   "sbp": 126
+  },
+  "note": "Epic's Health Maintenance topic 'Diabetes Screening' appears precisely because the patient is NOT diabetic; the problem list confirms no DM, so dm=No."
+ },
+ {
+  "name": "dm-ruled-out-negation-after",
+  "text": "Age: 57\nSex: Female\nPMH: HTN; DM ruled out 2024 (A1c 5.6); hypothyroidism\nMeds: levothyroxine 75 mcg, amlodipine 5 mg",
+  "want": {
+   "dm": false,
+   "bp_tx": true,
+   "hba1c": null
+  },
+  "note": "'DM ruled out' negates the abbreviation even though the negation comes after it; the PMH is a real list without diabetes, so dm=No. The 5.6 is a 2024 A1c in a parenthetical, not a current value."
+ },
+ {
+  "name": "intake-form-question-marks",
+  "text": "Age: 38\nSex: Male\nPre-visit questionnaire\nDiabetes? No\nHigh blood pressure? No\nSmoker? No\nHeight 5'10\"  Weight 190 lb  BMI 27.3",
+  "want": {
+   "dm": false,
+   "smoking": false,
+   "bmi": 27.3
+  },
+  "note": "Questionnaire answers ('Diabetes? No', 'Smoker? No') are explicit Nos; a question mark instead of a colon must not turn the keyword into a Yes."
+ },
+ {
+  "name": "resolved-problems-section",
+  "text": "Age: 54\nSex: Male\nPatient Active Problem List:\n  Essential hypertension\n  Obesity, s/p sleeve gastrectomy 2022\nResolved Problems:\n  Type 2 diabetes mellitus (resolved 2023, A1c 5.4 off all meds)\n  Nicotine dependence, cigarettes\nHTN Meds: Current Hypertension Medications\n  lisinopril 20 MG tablet",
+  "want": {
+   "dm": null,
+   "smoking": null,
+   "bp_tx": true,
+   "hba1c": null
+  },
+  "note": "Entries under Epic's 'Resolved Problems' are past diagnoses: diabetes in remission after bariatric surgery and a resolved nicotine dependence are ambiguous for PREVENT, so both stay blank. The A1c 5.4 is a stale 2023 comment (blank or 5.4; never the lisinopril dose)."
+ },
+ {
+  "name": "gdm-resolved-postpartum-ob-history",
+  "text": "Age: 41\nSex: Female\nOB History: G3P2012; GDM x2 (2014, 2017), diet-controlled, diabetes resolved postpartum both times.\nProblem List:\n  Migraine without aura\n  Iron deficiency anemia",
+  "want": {
+   "dm": false
+  },
+  "note": "Gestational diabetes that resolved postpartum is not current diabetes; the problem list has none, so dm=No."
+ },
+ {
+  "name": "fhx-t2dm-abbrev-then-own-t2dm",
+  "text": "Age: 62\nSex: Male\nFHx: T2DM (mother), CAD (father)\nPatient Active Problem List:\n  T2DM with hyperglycemia\n  HTN\n  HLD\nMeds: metformin 1000 mg BID, lisinopril 10 mg, atorvastatin 40 mg",
+  "want": {
+   "dm": true,
+   "bp_tx": true,
+   "statin": true
+  },
+  "note": "The first 'T2DM' is the mother's, but the patient's own 'T2DM with hyperglycemia' is on the active problem list, so dm=Yes. Negating the family-history mention must not erase the patient's diagnosis."
+ },
+ {
+  "name": "fhx-colon-header-then-problem-list-no-colon",
+  "text": "Age: 59\nSex: Female\nFamily History:\n  Mother - hypertension, stroke\n  Father - colon cancer\nPatient Active Problem List\n  Diagnosis\n  . Type 2 diabetes mellitus without complication\n  . Essential hypertension\n  . Hyperlipidemia\nCurrent Outpatient Medications\n  . metFORMIN 500 mg tablet\n  . atorvastatin 20 mg tablet",
+  "want": {
+   "dm": true,
+   "statin": true
+  },
+  "note": "Epic's 'Patient Active Problem List' header has no colon, but it clearly ends the family-history section; the T2DM under it is the patient's own, so dm=Yes."
+ },
+ {
+  "name": "smokeless-tobacco-current-never-smoker",
+  "text": "Age: 48\nSex: Male\nSocial Hx: Social History\n  Tobacco Use\n    Smoking status: Never\n    Smokeless tobacco: Current\n      Types: Chew\n  Substance and Sexual Activity\n    Alcohol use: Yes",
+  "want": {
+   "smoking": false
+  },
+  "note": "Epic @TOBHX@ with 'Smoking status: Never' and 'Smokeless tobacco: Current' - chewing tobacco is not cigarette smoking, so PREVENT smoking=No."
+ },
+ {
+  "name": "passive-exposure-spouse-ppd",
+  "text": "Age: 50\nSex: Female\nSocial History\n  Tobacco Use\n    Smoking status: Never\n    Passive exposure: Yes (spouse smokes 1 ppd in the home)\n    Smokeless tobacco: Never",
+  "want": {
+   "smoking": false
+  },
+  "note": "The '1 ppd' belongs to the spouse in the passive-exposure line; the patient's status is Never, so smoking=No."
+ },
+ {
+  "name": "fhx-father-smoker-former-patient",
+  "text": "Age: 56\nSex: Male\nSocial: Former smoker, quit 2015, ~20 pack-years.\nFamily History:\n  Father: lung cancer (smoker), deceased at 68\n  Mother: hypertension\nProblem List:\n  Hypertension\n  Hyperlipidemia",
+  "want": {
+   "smoking": false,
+   "dm": false
+  },
+  "note": "The patient is a former smoker (quit 2015); the '(smoker)' in the family-history section describes the father. smoking=No."
+ },
+ {
+  "name": "heavy-smoker-in-the-past",
+  "text": "Age: 67\nSex: Male\nBP: 136/84\nTobacco: heavy smoker in the past (2 ppd x 30 yrs), quit 2010. No current tobacco use.",
+  "want": {
+   "smoking": false,
+   "sbp": 136
+  },
+  "note": "'Heavy smoker in the past ... quit 2010 ... no current tobacco use' is a former smoker; the words 'smoker' and '2 ppd' describe history, so smoking=No."
+ },
+ {
+  "name": "former-smoker-ppd-detail",
+  "text": "Age: 61\nSex: Female\nSocial Hx: Former smoker, 1 ppd x 20 years, quit 2015. Occasional alcohol.",
+  "want": {
+   "smoking": false
+  },
+  "note": "'Former smoker, 1 ppd x 20 years, quit 2015' - the pack-per-day figure is the historical amount of a former smoker, so smoking=No."
+ },
+ {
+  "name": "marijuana-smoker-denies-cigarettes",
+  "text": "Age: 33\nSex: Male\nSubstance use: Marijuana smoker (daily), denies cigarettes or other tobacco. Alcohol: 2-3 drinks/week.",
+  "want": {
+   "smoking": false
+  },
+  "note": "'Marijuana smoker' is not cigarette smoking and the patient denies cigarettes and tobacco, so PREVENT smoking=No."
+ },
+ {
+  "name": "smokers-cough-quit-2019",
+  "text": "Age: 64\nSex: Male\nROS: chronic morning cough (“smoker’s cough” per pt), no hemoptysis.\nTobacco: quit 2019 after 40 pack-years; no tobacco since.",
+  "want": {
+   "smoking": false
+  },
+  "note": "'Smoker's cough' is a symptom description, and the tobacco line says quit 2019 with no tobacco since, so smoking=No."
+ },
+ {
+  "name": "smoking-label-half-ppd",
+  "text": "Age: 45\nSex: Female\nSmoking: 0.5 ppd\nAlcohol: none\nBP: 122/76",
+  "want": {
+   "smoking": true,
+   "sbp": 122
+  },
+  "note": "'Smoking: 0.5 ppd' is a current half-pack-a-day smoker; the leading '0' of 0.5 must not be read as a No."
+ },
+ {
+  "name": "smoking-status-never-assessed",
+  "text": "Age: 70\nSex: Male\nSocial History\n  Tobacco Use\n    Smoking status: Never Assessed\n    Smokeless tobacco: Never Assessed",
+  "want": {
+   "smoking": null
+  },
+  "note": "Epic's 'Never Assessed' status means the question was never asked - it is missing data, not 'Never smoker', so smoking must stay blank."
+ },
+ {
+  "name": "smoker-current-status-unknown",
+  "text": "Age: 58\nSex: Female\nTobacco Use\n  Smoking status: Smoker, Current Status Unknown\n  Smokeless tobacco: Never",
+  "want": {
+   "smoking": null
+  },
+  "note": "Epic's 'Smoker, Current Status Unknown' option says the patient has smoked but current status is unknown; PREVENT asks about current smoking, so it must stay blank."
+ },
+ {
+  "name": "nicotine-dependence-vaping-no-cigarettes",
+  "text": "Age: 29\nSex: Male\nProblem List:\n  Nicotine dependence, other tobacco product (F17.290)\n  Asthma, mild intermittent\nSocial: uses a nicotine vape daily; no combustible cigarettes.",
+  "want": {
+   "smoking": false,
+   "dm": false
+  },
+  "note": "The nicotine dependence is from vaping (F17.29, 'other tobacco product') and the social history says no combustible cigarettes; PREVENT smoking=No."
+ },
+ {
+  "name": "vapes-daily-history-of-nicotine-dependence",
+  "text": "Age: 24\nSex: Female\nProblem List:\n  Obesity\n  History of nicotine dependence\nSocial: vapes daily.",
+  "want": {
+   "smoking": null,
+   "dm": false
+  },
+  "note": "'Vapes daily' says nothing definite about cigarette smoking and 'History of nicotine dependence' is historical, so smoking stays blank; the problem list has no DM."
+ },
+ {
+  "name": "chews-tobacco-no-cigarettes-ever",
+  "text": "Age: 46\nSex: Male\nSocial: chews tobacco daily (1 can/day), no cigarettes ever. ETOH rare.",
+  "want": {
+   "smoking": false
+  },
+  "note": "Chewing tobacco with 'no cigarettes ever' is an explicit negation of cigarette smoking, so smoking=No."
+ },
+ {
+  "name": "tobacco-no-short-label",
+  "text": "Age: 39\nSex: Female\nTobacco: No\nAlcohol: Occasional\nDrugs: No",
+  "want": {
+   "smoking": false
+  },
+  "note": "'Tobacco: No' is the common short social-history line meaning non-smoker; smoking=No."
+ },
+ {
+  "name": "allergies-epic-table-no-colon",
+  "text": "Age: 60\nSex: Female\nAllergies\nAllergen\t\tReactions\n . Lisinopril\t\tCough\n . Atorvastatin\t\tMyalgia\n . Penicillins\t\tRash\nCurrent Outpatient Medications\n . levothyroxine 50 mcg tablet",
+  "want": {
+   "bp_tx": null,
+   "statin": null
+  },
+  "note": "Epic's allergy table prints 'Allergies' with no colon; lisinopril and atorvastatin are listed as allergens, not active meds, and the med list has neither class, so both flags stay blank."
+ },
+ {
+  "name": "allergy-header-then-meds-without-colon-header",
+  "text": "Age: 66\nSex: Male\nAllergies:\n  Sulfa (rash)\nMeds\n  amlodipine 10 mg daily\n  atorvastatin 40 mg nightly\n  metformin 500 mg BID",
+  "want": {
+   "bp_tx": true,
+   "statin": true
+  },
+  "note": "The allergy section ends at the 'Meds' heading even though it has no colon; amlodipine and atorvastatin are active meds, so bp_tx=Yes and statin=Yes."
+ },
+ {
+  "name": "discontinued-medications-section",
+  "text": "Age: 71\nSex: Female\nCurrent Outpatient Medications:\n  levothyroxine 88 mcg tablet\tTake 1 tablet daily\n  vitamin D3 2000 units\t\tTake 1 capsule daily\nDiscontinued Medications:\n  lisinopril 10 mg tablet\t\tTake 1 tablet daily\t\tReason: cough\n  atorvastatin 20 mg tablet\tTake 1 tablet nightly\tReason: myalgias",
+  "want": {
+   "bp_tx": null,
+   "statin": null
+  },
+  "note": "Lisinopril and atorvastatin appear only under 'Discontinued Medications'; the current list has neither, and there is no 'No current ... medications' line, so both flags stay blank."
+ },
+ {
+  "name": "holding-for-aki-and-held-statin",
+  "text": "Age: 74\nSex: Male\nHospital day 2.\nHome meds:\n  lisinopril 20 mg daily - HOLDING for AKI, resume when Cr < 1.5\n  atorvastatin 40 mg nightly - HELD during admission (transaminitis)\n  metoprolol succinate 50 mg daily - HOLDING for bradycardia\nCr 2.1 (baseline 1.1)",
+  "want": {
+   "bp_tx": null,
+   "statin": null,
+   "egfr": null
+  },
+  "note": "Every antihypertensive and the statin are on hold during an admission - ambiguous for a chronic-risk tool, so both flags stay blank ('holding' must be treated like 'held'). 'Cr < 1.5' is a resumption target and 2.1 is an AKI value, so eGFR must not be computed from either."
+ },
+ {
+  "name": "ran-out-has-not-taken",
+  "text": "Age: 55\nSex: Male\nMedications:\n  atorvastatin 40 mg nightly - pt ran out 2 months ago, has not taken since\n  lisinopril 10 mg daily - taking",
+  "want": {
+   "statin": null,
+   "bp_tx": true
+  },
+  "note": "A statin the patient ran out of two months ago and has not taken is not current therapy, so statin stays blank; lisinopril is being taken, so bp_tx=Yes."
+ },
+ {
+  "name": "no-changes-to-htn-meds",
+  "text": "Age: 63\nSex: Male\nBP: 128/78\nA/P:\n1. HTN: at goal on lisinopril 20 mg and amlodipine 5 mg, no changes to HTN meds today.\n2. HLD: LDL 82 on atorvastatin 40 mg.",
+  "want": {
+   "bp_tx": true,
+   "statin": true,
+   "ldl_c": 82,
+   "sbp": 128
+  },
+  "note": "'No changes to HTN meds' means the regimen continues unchanged - the patient IS on lisinopril and amlodipine, so bp_tx=Yes; atorvastatin gives statin=Yes."
+ },
+ {
+  "name": "no-problems-with-cholesterol-medication",
+  "text": "Age: 59\nSex: Female\nMeds: rosuvastatin 20 mg nightly, losartan 100 mg daily\nPt reports no problems with cholesterol medication, adherent.",
+  "want": {
+   "statin": true,
+   "bp_tx": true
+  },
+  "note": "'No problems with cholesterol medication' describes tolerance of an active rosuvastatin, not absence of one; statin=Yes and losartan gives bp_tx=Yes."
+ },
+ {
+  "name": "was-on-atorvastatin-stopped-now-rosuva",
+  "text": "Age: 62\nSex: Male\nMeds: rosuvastatin 10 mg daily (was on atorvastatin, stopped 2024 for myalgias); lisinopril 20 mg daily",
+  "want": {
+   "statin": true,
+   "bp_tx": true
+  },
+  "note": "Rosuvastatin is the current statin; the 'stopped' refers to the prior atorvastatin. Lisinopril on the same line is active. statin=Yes, bp_tx=Yes."
+ },
+ {
+  "name": "no-current-outpatient-medications-on-file",
+  "text": "Age: 42\nSex: Female\nBP: 118/72\nCurrent Outpatient Medications:\nNo current outpatient medications on file.\nAllergies: NKDA",
+  "want": {
+   "bp_tx": false,
+   "statin": false,
+   "sbp": 118
+  },
+  "note": "Epic's literal empty-med-list print 'No current outpatient medications on file' is an explicit 'No current ... medications' line, so bp_tx=No and statin=No."
+ },
+ {
+  "name": "white-coat-htn-no-antihypertensive-control",
+  "text": "Age: 50\nSex: Male\nProblem List:\n  White coat hypertension - home BP avg 120/76, no antihypertensive medications\n  Performance anxiety - propranolol 10 mg PRN before presentations (not for BP)\nBP: 146/90 (office)",
+  "want": {
+   "bp_tx": false,
+   "dm": false
+  },
+  "note": "'No antihypertensive medications' is explicit; PRN propranolol for performance anxiety is not blood-pressure treatment. bp_tx=No; problem list has no DM."
+ },
+ {
+  "name": "htn-meds-no-change-label",
+  "text": "Age: 68\nSex: Female\nHTN meds: no change (lisinopril 40 mg, HCTZ 25 mg)\nStatin: no change (atorvastatin 80 mg)",
+  "want": {
+   "bp_tx": true,
+   "statin": true
+  },
+  "note": "'No change' after a med label means the listed drugs continue; lisinopril/HCTZ and atorvastatin are active, so bp_tx=Yes and statin=Yes."
+ },
+ {
+  "name": "bp-meds-not-on-any-label",
+  "text": "Age: 44\nSex: Male\nBP: 138/86\nBP meds: not on any\nStatin: not on one\nDiabetes: no\nSmoking: never",
+  "want": {
+   "bp_tx": false,
+   "statin": false,
+   "dm": false,
+   "smoking": false,
+   "sbp": 138
+  },
+  "note": "'Not on any' / 'not on one' are explicit Nos after the labels; the word 'on' inside a negation must not become a Yes."
+ },
+ {
+  "name": "statin-on-hold-label",
+  "text": "Age: 57\nSex: Female\nStatin: on hold pending repeat LFTs (atorvastatin 20 mg)",
+  "want": {
+   "statin": null
+  },
+  "note": "A statin 'on hold pending LFTs' is neither clearly current nor clearly stopped - ambiguous, so it must stay blank rather than read 'on' as Yes."
+ },
+ {
+  "name": "inline-allergies-then-meds-control",
+  "text": "Age: 53\nSex: Male\nAllergies: Lisinopril (cough), Atorvastatin (myalgias), Sulfa (rash)\nMedications: Losartan 50 mg daily, Ezetimibe 10 mg daily, Aspirin 81 mg",
+  "want": {
+   "bp_tx": true,
+   "statin": null
+  },
+  "note": "Lisinopril and atorvastatin are on the same-line allergy list; losartan on the med line gives bp_tx=Yes, and ezetimibe is not a statin, so statin stays blank."
+ }
+]
