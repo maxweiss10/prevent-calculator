@@ -990,10 +990,21 @@
       if (crVal != null) return;
       var bl = n.beforeLine;
       if (/alb|ratio|urine|uacr|clearance|kinase|micro/.test(bl)) return;
-      if (/(?:^|[^a-z\/])(?:creatinine|creat|scr|cr)\b/.test(bl)) {
-        if (/µmol|umol|μmol/.test(n.after) && n.val >= 20 && n.val <= 1500) crVal = n.val / 88.4;
-        else if (n.val >= 0.2 && n.val <= 15) crVal = n.val;
-      }
+      if (/\baki\b|acute\s+kidney|baseline|resume\s+when|\bgoal\b|\btarget\b/.test(bl)) return;
+      if (!/(?:^|[^a-z\/])(?:creatinine|creat|scr|cr)\b/.test(bl)) return;
+      // Reference-range bounds are not results. On an SI row ("Creatinine  97
+      // 44 - 106 umol/L") the low bound 44 sits on a creatinine line with "umol"
+      // right after it, so without these two guards the cross-check derives an
+      // eGFR of 107 from it and raises a false conflict against a correct primary.
+      if (/[-–]\s*$/.test(bl)) return;                       // high bound: "44 - |106|"
+      if (/^\s*[-–]\s*\d/.test(n.after)) return;              // low bound:  "|44| - 106"
+      // The unit may sit further along the row than the 12-char `after` window, so
+      // fall back to the whole line for the SI check.
+      var lnS = text.lastIndexOf("\n", n.numStart - 1) + 1;
+      var lnE = text.indexOf("\n", n.numStart); if (lnE < 0) lnE = text.length;
+      var si = /µmol|umol|μmol/i.test(text.slice(lnS, lnE));
+      if (si && n.val >= 20 && n.val <= 1500) crVal = n.val / 88.4;
+      else if (!si && n.val >= 0.2 && n.val <= 15) crVal = n.val;
     });
     if (crVal != null && V.age != null && V.sex) V.egfr_cr = ckdEpi2021(crVal, V.age, V.sex);
 
