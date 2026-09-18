@@ -76,6 +76,10 @@ rather than a bespoke script whenever a new paste layout turns up:
 - `cases-prose.json` — narrative clinic notes rather than SmartLink output: the
   clinic one-liner, ages written "58 yo M" / "74-year-old woman", and the
   relatives who appear mid-sentence ("his wife has diabetes").
+- `cases-ordering.json` — which of several candidate values wins: dated rows
+  sorted oldest-first, the boundary between a treatment target and the reading
+  that follows it on the same line, two records pasted together, and dual-unit
+  lab reports.
 
 The governing rule for every expectation: **a wrong value is far worse than a
 blank.** When the text is genuinely ambiguous — a resolved diagnosis, a held

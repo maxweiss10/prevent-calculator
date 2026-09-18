@@ -230,6 +230,38 @@
   // Scrapes clinical numbers out of free text (@BRIEFLABS()@ output, a pasted
   // results view, a note). Handles both "Label: value" and compact/vertical
   // lab formats. Fills only fields not already set.
+  // Epic's SmartLinks print most-recent-first, but a Results Review grid or an
+  // outside report can be sorted oldest-first — in which case taking "the first
+  // row" silently returns a stale value. These let the scans pick by DATE instead.
+  function dateStamp(mm, dd, yy) {
+    var y = +yy; if (y < 100) y += y <= 69 ? 2000 : 1900;
+    return y * 10000 + (+mm) * 100 + (+dd);
+  }
+  // The latest date on a line, or null. Times ("2:37") are not dates.
+  function latestDateIn(line) {
+    var re = /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/g, m, best = null;
+    while ((m = re.exec(line)) !== null) {
+      if (+m[1] > 12 || +m[2] > 31) continue;
+      var d = dateStamp(m[1], m[2], m[3]);
+      if (best === null || d > best) best = d;
+    }
+    return best;
+  }
+  // Given candidates [{value, threshold, date}], return the one with the latest
+  // date when at least two carry DIFFERENT dates; otherwise keep the first, which
+  // preserves the most-recent-first convention for undated text.
+  function pickByDate(cands) {
+    if (!cands.length) return null;
+    var dated = cands.filter(function (c) { return c.date != null; });
+    if (dated.length >= 2) {
+      var distinct = {}; dated.forEach(function (c) { distinct[c.date] = 1; });
+      if (Object.keys(distinct).length > 1) {
+        return dated.reduce(function (a, b) { return b.date > a.date ? b : a; });
+      }
+    }
+    return cands[0];
+  }
+
   function lineAfter(text, idx) {
     var after = text.slice(idx);
     var nl = after.search(/\n/);
@@ -243,7 +275,7 @@
   // Returns { value, threshold } or null.
   function scanField(text, namePat, opts) {
     opts = opts || {};
-    var re = new RegExp(namePat, "gi"), m;
+    var re = new RegExp(namePat, "gi"), m, cands = [];
     while ((m = re.exec(text)) !== null) {
       if (m.index === re.lastIndex) re.lastIndex++;
       // Look-back for badWords, but CLAMP to the current line — never cross a
@@ -313,9 +345,10 @@
       }
       var n = result.value;
       if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
-      return { value: n, threshold: result.threshold };
+      var lnEnd = text.indexOf("\n", m.index); if (lnEnd < 0) lnEnd = text.length;
+      cands.push({ value: n, threshold: result.threshold, date: latestDateIn(text.slice(lnStart, lnEnd)) });
     }
-    return null;
+    return pickByDate(cands);
   }
   function scanSbp(text) {
     // 1) explicit "BP 148/86", "BP 148 over 86", "148/86 mmHg", "SBP 148"
@@ -336,12 +369,16 @@
     // 2) fallback for reading lists (@LASTBP(n)@ -> "07/10/26 : 110/72"): first
     //    SBP/DBP pair that isn't part of a date (not followed by another "/digits")
     //    and whose values are in physiologic range. Readings are most-recent-first.
-    var re = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, mm;
+    var re = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, mm, bps = [];
     while ((mm = re.exec(text)) !== null) {
       var s = +mm[1], d = +mm[2];
-      if (s >= 70 && s <= 260 && d >= 30 && d <= 160) return s;
+      if (!(s >= 70 && s <= 260 && d >= 30 && d <= 160)) continue;
+      var bs = text.lastIndexOf("\n", mm.index) + 1;
+      var be = text.indexOf("\n", mm.index); if (be < 0) be = text.length;
+      bps.push({ value: s, date: latestDateIn(text.slice(bs, be)) });
     }
-    return null;
+    var pick = pickByDate(bps);
+    return pick ? pick.value : null;
   }
   // BMI from an @LASTBMI(n)@ dated reading list ("BMI Readings from Last 3
   // Encounters:\n04/13/26<TAB>28.4") — the BMI analogue of the @LASTBP@ list.
@@ -354,11 +391,14 @@
     var lines = text.split(/\n/);
     for (var i = 0; i < lines.length; i++) {
       if (!/\bbmi\b|body\s*mass/i.test(lines[i])) continue;
+      var rows = [];
       for (var j = i; j < Math.min(lines.length, i + 6); j++) {
         var m = lines[j].replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2")
-                        .match(/\d{1,2}\/\d{1,2}\/\d{2,4}(?:\s*[:\-–]\s*|\s+)(\d{2,3}(?:\.\d+)?)/);
-        if (m) { var v = parseFloat(m[1]); if (v >= 12 && v <= 80) return v; }
+                        .match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s*[:\-–]\s*|\s+)(\d{2,3}(?:\.\d+)?)/);
+        if (m) { var v = parseFloat(m[4]); if (v >= 12 && v <= 80) rows.push({ value: v, date: dateStamp(m[1], m[2], m[3]) }); }
       }
+      var picked = pickByDate(rows);
+      if (picked) return picked.value;
     }
     return null;
   }
@@ -485,10 +525,20 @@
           // From the target word to end of line, not the whole line: a numbered A/P
           // item ("1. HLD: LDL goal < 70") puts a digit BEFORE the cue, and
           // "BP 128/78, at goal" puts a real reading before it.
-          var probe = ln.replace(/goals?\s+of\s+care/gi, function (x) { return x.replace(/./g, " "); });
+          // Phrases that contain a target word but are NOT a target: "goals of care"
+          // is a conversation, and "at goal" / "at target" describes a state the
+          // patient has REACHED — "HTN at goal. BP 128/78" is a real reading.
+          var probe = ln.replace(/goals?\s+of\s+care|\bat\s+(?:goal|target)\b/gi,
+                                 function (x) { return x.replace(/./g, " "); });
           var cue = probe.search(TARGET_CUE);
-          if (cue >= 0 && /\d/.test(ln.slice(cue)))
-            out.push({ start: pos + cue, end: pos + ln.length, reason: "a treatment target, not a measurement" });
+          if (cue >= 0) {
+            // Mask only to the end of the SENTENCE, not the line: "BP goal <130.
+            // Today BP 142/88" states the target and then the actual reading.
+            var stop = ln.slice(cue).search(/[.;]\s/);
+            var end = stop >= 0 ? cue + stop + 1 : ln.length;
+            if (/\d/.test(ln.slice(cue, end)))
+              out.push({ start: pos + cue, end: pos + end, reason: "a treatment target, not a measurement" });
+          }
         }
       }
       pos += ln.length + 1;
@@ -1032,6 +1082,20 @@
     else { var sm = text.match(/\b(?:sex|gender)\b\s*[:=]?\s*([mf])\b/i); if (sm) V.sex = /f/i.test(sm[1]) ? "female" : "male"; }
 
     var nums = harvestNumbers(text);
+    // Same date rule as the primary scans: with two or more differently-dated rows,
+    // the latest wins; otherwise the first, preserving most-recent-first order.
+    function lineAt(pos) {
+      var a = text.lastIndexOf("\n", pos - 1) + 1;
+      var b = text.indexOf("\n", pos); if (b < 0) b = text.length;
+      return text.slice(a, b);
+    }
+    function collect(cands) { var pick = pickByDate(cands); return pick ? pick.value : null; }
+    // A number that is one component of a date is never a measurement. "08/13/26"
+    // ends in a plausible BMI, and the unit on the rest of the line ("kg/m2") would
+    // otherwise vouch for it — so the YEAR could be harvested as the BMI.
+    function isDatePart(n) {
+      return /\d\s*[\/-]\s*$/.test(n.beforeLine) || /^\s*[\/-]\s*\d/.test(n.after);
+    }
 
     // age: 18–110 with "age" on the same line, or a year suffix (yo / y/o / years)
     nums.forEach(function (n) {
@@ -1040,17 +1104,20 @@
     });
 
     // sbp: first physiologic BP pair not part of a date, else "SBP n" / "n mmHg"
-    var bpRe = /(\d{2,3})\s*(?:\/|over)\s*(\d{2,3})(?!\s*\/\s*\d)/g, bm;
+    var bpRe = /(\d{2,3})\s*(?:\/|over)\s*(\d{2,3})(?!\s*\/\s*\d)/g, bm, bpC = [];
     while ((bm = bpRe.exec(text)) !== null) {
       var s = +bm[1], d = +bm[2];
-      if (s >= 70 && s <= 260 && d >= 30 && d <= 160) { V.sbp = s; break; }
+      if (s >= 70 && s <= 260 && d >= 30 && d <= 160) bpC.push({ value: s, date: latestDateIn(lineAt(bm.index)) });
     }
+    V.sbp = collect(bpC);
+    if (V.sbp == null) delete V.sbp;
     if (V.sbp == null) nums.forEach(function (n) {
       if (V.sbp != null) return;
       if (n.val >= 70 && n.val <= 260 && (/\bsbp\b|systolic/.test(n.beforeLine) || /mm\s*hg/.test(n.after))) V.sbp = n.val;
     });
 
     // cholesterol family — classify by the number's OWN line (not a char window)
+    var tcC = [], hdlC = [];
     nums.forEach(function (n) {
       var bl = n.beforeLine;
       if (!/chol|hdl|ldl|lipoprotein|\btc\b/.test(bl)) return;
@@ -1058,12 +1125,22 @@
       // a reference-range bound is not a result (see the creatinine harvest below)
       if (/[-–]\s*$/.test(bl) || /^\s*[-–]\s*\d/.test(n.after)) return;
       var si = /^\s*mmol/i.test(n.after);                                  // SI-unit panel
-      if (/hdl|high[\s-]?density/.test(bl)) { if (V.hdl_c == null && (si ? (n.val >= 0.2 && n.val <= 5) : (n.val >= 5 && n.val <= 150))) V.hdl_c = n.val; return; }
-      if (/total|\btc\b|chol/.test(bl)) { if (V.total_c == null && (si ? (n.val >= 1.5 && n.val <= 15) : (n.val >= 40 && n.val <= 500))) V.total_c = n.val; }
+      if (isDatePart(n)) return;
+      var when = latestDateIn(lineAt(n.numStart));
+      if (/hdl|high[\s-]?density/.test(bl)) { if (si ? (n.val >= 0.2 && n.val <= 5) : (n.val >= 5 && n.val <= 150)) hdlC.push({ value: n.val, date: when }); return; }
+      if (/total|\btc\b|chol/.test(bl)) { if (si ? (n.val >= 1.5 && n.val <= 15) : (n.val >= 40 && n.val <= 500)) tcC.push({ value: n.val, date: when }); }
     });
+    var tcPick = collect(tcC); if (tcPick != null) V.total_c = tcPick;
+    var hdlPick = collect(hdlC); if (hdlPick != null) V.hdl_c = hdlPick;
 
     // bmi
-    nums.forEach(function (n) { if (V.bmi == null && n.val >= 10 && n.val <= 80 && (/bmi|body\s*mass/.test(n.beforeLine) || /kg\/m/.test(n.after))) V.bmi = n.val; });
+    var bmiC = [];
+    nums.forEach(function (n) {
+      if (isDatePart(n)) return;
+      if (n.val >= 10 && n.val <= 80 && (/bmi|body\s*mass/.test(n.beforeLine) || /kg\/m/.test(n.after)))
+        bmiC.push({ value: n.val, date: latestDateIn(lineAt(n.numStart)) });
+    });
+    var bmiPick = collect(bmiC); if (bmiPick != null) V.bmi = bmiPick;
     // hba1c
     // hba1c: reject reference-range bounds and diagnostic-cutoff comment numbers,
     // so the second parser abstains (rather than confidently grabbing 4.3) on an
