@@ -29,6 +29,7 @@ node verification/parsing/integration-test.js
 node verification/parsing/adversarial-probe.js
 node verification/parsing/run-cases.js verification/parsing/cases-*.json
 node verification/parsing/units-integration-test.js
+node verification/parsing/guideline-units-test.js
 node verification/parsing/robustness-test.js
 node verification/parsing/edge-generator.js   # expects a 0.00% false-alarm rate
 ```
@@ -38,6 +39,12 @@ same patient written in mmol/L and in mg/dL produces an identical risk across
 every model, both sexes and both horizons. The parser never converts units, it
 only reports which one it saw, so a unit that fails to reach the engine would be
 silently wrong in a way no parsing assertion can catch.
+
+`guideline-units-test.js` does the same for the recommendation layer. The
+guideline is written entirely in mg/dL and the page converts at the boundary, so
+a missed conversion would leave the risk number untouched while quietly changing
+the treatment advice. It asserts an identical pathway, headline, goals and
+category in both unit systems across every pathway the guideline has.
 
 `robustness-test.js` is the crash floor: empty input, an unresolved SmartPhrase
 template, CRLF, non-breaking spaces, HTML, JSON, emoji, a 40 KB line, regex

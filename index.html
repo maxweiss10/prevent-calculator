@@ -81,6 +81,8 @@
   .hl-x { background: rgba(192,57,43,0.26); background: color-mix(in srgb, var(--high) 26%, transparent); outline: 1px solid var(--high); }
   .hl-miss { background: rgba(192,57,43,0.15); background: color-mix(in srgb, var(--high) 15%, transparent); border-bottom: 2px dashed var(--high); font-weight: 700; }
   .hl-dia { opacity: .5; }
+  .hl-ex { background: rgba(120,120,120,0.16); color: inherit; opacity: .62; text-decoration: line-through;
+           text-decoration-thickness: 1px; }
   .srclegend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
   .srclegend span { display: inline-flex; align-items: center; gap: 5px; }
   .srclegend i { width: 20px; height: 12px; border-radius: 3px; display: inline-block; }
@@ -212,6 +214,7 @@
           <span><i style="background:rgba(217,131,36,0.30);background:color-mix(in srgb,#d98324 30%,transparent)"></i>auto-detected</span>
           <span><i style="background:rgba(192,57,43,0.26);background:color-mix(in srgb,var(--high) 26%,transparent);outline:1px solid var(--high)"></i>parsers disagree</span>
           <span><i style="background:rgba(192,57,43,0.15);background:color-mix(in srgb,var(--high) 15%,transparent);border-bottom:2px dashed var(--high)"></i>not captured — check</span>
+          <span><i style="background:rgba(120,120,120,0.16)"></i>not the patient's (family history / goal)</span>
         </div>
       </div>
 
@@ -327,7 +330,10 @@
         likely parsing error to double-check. The form keeps the primary parser's value.</li>
       <li><b>shows its work</b> (“What the parser read”): the pasted text is echoed back with every value it used
         highlighted and color-coded to a field — so a number it <i>missed</i> stands out (a lab it couldn’t label, a
-        value printed in a layout it doesn’t know) and gets flagged “not captured — check.”</li>
+        value printed in a layout it doesn’t know) and gets flagged “not captured — check.” Numbers it
+        deliberately ignored — a relative’s value in a family history, or a treatment target like “LDL goal
+        &lt;70” — are struck through with the reason, so they are visibly accounted for rather than looking
+        like something you should type in;</li>
       <li><b>quantifies what’s at stake</b>: for a disagreement or an auto-detected flag, it recomputes 10-year ASCVD
         both ways (e.g. “eGFR 92 → 13.7% vs eGFR 24 → 21.6%”), so you know whether an uncertain value actually
         changes management or is safe to move past.</li>
@@ -366,10 +372,10 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=22"></script>
-<script src="prevent.js?v=22"></script>
-<script src="app.js?v=22"></script>
-<script src="guideline.js?v=22"></script>
+<script src="coeffs.js?v=23"></script>
+<script src="prevent.js?v=23"></script>
+<script src="app.js?v=23"></script>
+<script src="guideline.js?v=23"></script>
 <script>
 (function () {
   "use strict";
@@ -586,6 +592,8 @@
         var cls = conflicts[fkey] === "conflict" ? "hl-x" : ((found[fkey] === "inferred" || found[fkey] === "computed_from_cr") ? "hl-i" : "hl-c");
         var lbl = (FL[fkey] || fkey) + (s.field === "egfr_cr" ? " (via serum creatinine)" : "");
         html += '<span class="hl ' + cls + '" title="→ ' + lbl + '">' + frag + "</span>";
+      } else if (s.status === "excluded") {
+        html += '<span class="hl hl-ex" title="not used — ' + escHtml(s.reason || "excluded") + '">' + frag + "</span>";
       } else if (s.status === "missed") {
         misses++;
         html += '<span class="hl hl-miss" title="looks like ' + (FL[s.field] || s.field) + ' — not captured; enter manually if correct">' + frag + "</span>";

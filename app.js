@@ -465,8 +465,11 @@
   var TARGET_CUE = /\b(?:goals?|targets?|aim(?:ing)?\s+for|keep\s+(?:it\s+)?(?:under|below)|maintain|should\s+be|desired?|ideally)\b/i;
   // Masking is length-preserving so character offsets stay valid for the source
   // highlighter, which still shows these numbers (flagged, not silently dropped).
-  function maskDisqualifiedLines(text) {
-    var lines = text.split("\n"), pos = 0;
+  // The spans themselves, each with WHY it is excluded. Reported rather than just
+  // masked so the source highlighter can say "this is the mother's" instead of
+  // prompting the reader to type the number in — which would undo the guard.
+  function disqualifiedSpans(text) {
+    var lines = text.split("\n"), pos = 0, out = [];
     for (var i = 0; i < lines.length; i++) {
       var ln = lines[i], d = ln.search(/\d/);
       if (d >= 0) {
@@ -477,21 +480,29 @@
         // still belong to the relatives.
         if (fam && /^\S[^:\n]{0,30}:/.test(ln) && !RELATIVE_RE.test(ln.split(":")[0])) fam = false;
         if (fam) {
-          lines[i] = ln.replace(/[^\n]/g, " ");
+          out.push({ start: pos, end: pos + ln.length, reason: "a relative's value (family history)" });
         } else {
-          // Mask from the target word to end of line, not the whole line: a numbered
-          // A/P item ("1. HLD: LDL goal < 70") puts a digit BEFORE the cue, and
-          // "BP 128/78, at goal" puts a real reading before it. Everything after the
-          // cue is the target.
+          // From the target word to end of line, not the whole line: a numbered A/P
+          // item ("1. HLD: LDL goal < 70") puts a digit BEFORE the cue, and
+          // "BP 128/78, at goal" puts a real reading before it.
           var probe = ln.replace(/goals?\s+of\s+care/gi, function (x) { return x.replace(/./g, " "); });
           var cue = probe.search(TARGET_CUE);
           if (cue >= 0 && /\d/.test(ln.slice(cue)))
-            lines[i] = ln.slice(0, cue) + ln.slice(cue).replace(/[^\n]/g, " ");
+            out.push({ start: pos + cue, end: pos + ln.length, reason: "a treatment target, not a measurement" });
         }
       }
       pos += ln.length + 1;
     }
-    return lines.join("\n");
+    return out;
+  }
+  function maskDisqualifiedLines(text) {
+    var spans = disqualifiedSpans(text);
+    if (!spans.length) return text;
+    var chars = text.split("");
+    spans.forEach(function (sp) {
+      for (var i = sp.start; i < sp.end && i < chars.length; i++) if (chars[i] !== "\n") chars[i] = " ";
+    });
+    return chars.join("");
   }
 
   function scanClinical(text, out, found, thresholds) {
@@ -983,8 +994,20 @@
       { f: "uacr", re: /uacr|\bacr\b|microalb|album\w*\s*\/?\s*creat/, excl: /never^/ },
       { f: "sbp", re: /\bbp\b|blood\s*pressure|systolic/, excl: /never^/ },
     ];
+    var disq = disqualifiedSpans(text);
+    function disqReason(a, b) {
+      for (var i = 0; i < disq.length; i++) if (a >= disq[i].start && b <= disq[i].end) return disq[i].reason;
+      return null;
+    }
     var spans = nums.map(function (n, i) {
       var status = consumed[i] != null ? "consumed" : "neutral", field = consumed[i] || null;
+      // Deliberately excluded numbers are shown as excluded, with the reason. They
+      // must never be flagged "not captured — check": following that prompt would
+      // put a relative's value or a treatment goal into the form by hand.
+      if (status === "neutral") {
+        var why = disqReason(n.numStart, n.numEnd);
+        if (why) return { start: n.numStart, end: n.numEnd, val: n.val, status: "excluded", field: null, reason: why };
+      }
       if (status === "neutral") {
         for (var r = 0; r < MISS_RULES.length; r++) {
           var rule = MISS_RULES[r];
@@ -1149,7 +1172,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, disqualifiedSpans, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();
