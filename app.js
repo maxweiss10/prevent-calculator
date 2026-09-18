@@ -353,8 +353,8 @@
   function scanSbp(text) {
     // 1) explicit "BP 148/86", "BP 148 over 86", "148/86 mmHg", "SBP 148"
     var pats = [
-      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3})\s*(?:\/|over)\s*\d{2,3}/i,
-      /(\d{2,3})\s*(?:\/|over)\s*\d{2,3}\s*mm\s*hg/i,
+      /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3}(?:\.\d+)?)\s*(?:\/|over)\s*\d{2,3}(?:\.\d+)?/i,
+      /(\d{2,3}(?:\.\d+)?)\s*(?:\/|over)\s*\d{2,3}(?:\.\d+)?\s*mm\s*hg/i,
       /\b(?:sbp|systolic(?:\s*(?:bp|blood\s*pressure))?)\b[^\d\n]{0,12}(\d{2,3})/i,
     ];
     for (var i = 0; i < pats.length; i++) {
@@ -369,7 +369,7 @@
     // 2) fallback for reading lists (@LASTBP(n)@ -> "07/10/26 : 110/72"): first
     //    SBP/DBP pair that isn't part of a date (not followed by another "/digits")
     //    and whose values are in physiologic range. Readings are most-recent-first.
-    var re = /(\d{2,3})\s*\/\s*(\d{2,3})(?!\s*\/\s*\d)/g, mm, bps = [];
+    var re = /(\d{2,3}(?:\.\d+)?)\s*\/\s*(\d{2,3}(?:\.\d+)?)(?!\s*\/\s*\d)/g, mm, bps = [];
     while ((mm = re.exec(text)) !== null) {
       var s = +mm[1], d = +mm[2];
       if (!(s >= 70 && s <= 260 && d >= 30 && d <= 160)) continue;
@@ -1104,7 +1104,7 @@
     });
 
     // sbp: first physiologic BP pair not part of a date, else "SBP n" / "n mmHg"
-    var bpRe = /(\d{2,3})\s*(?:\/|over)\s*(\d{2,3})(?!\s*\/\s*\d)/g, bm, bpC = [];
+    var bpRe = /(\d{2,3}(?:\.\d+)?)\s*(?:\/|over)\s*(\d{2,3}(?:\.\d+)?)(?!\s*\/\s*\d)/g, bm, bpC = [];
     while ((bm = bpRe.exec(text)) !== null) {
       var s = +bm[1], d = +bm[2];
       if (s >= 70 && s <= 260 && d >= 30 && d <= 160) bpC.push({ value: s, date: latestDateIn(lineAt(bm.index)) });
