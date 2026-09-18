@@ -66,6 +66,9 @@ rather than a bespoke script whenever a new paste layout turns up:
   before Value), reference-lab report styles, and the distractor numbers in a
   note header: MRN, DOB, phone, room, order ids, other vitals, and a metabolic
   panel.
+- `cases-prose.json` — narrative clinic notes rather than SmartLink output: the
+  clinic one-liner, ages written "58 yo M" / "74-year-old woman", and the
+  relatives who appear mid-sentence ("his wife has diabetes").
 
 The governing rule for every expectation: **a wrong value is far worse than a
 blank.** When the text is genuinely ambiguous — a resolved diagnosis, a held

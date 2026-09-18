@@ -166,6 +166,20 @@
         }
       }
     }
+    // Narrative one-liners carry age and sex without labels. Only used when the
+    // labelled pass found nothing, and only with an explicit age marker.
+    if (found.age === undefined) {
+      // The [\s-]* before the unit matters: "74-year-old" hyphenates. A bare "years"
+      // is deliberately NOT enough, or "20 pack-years" would become an age of 20.
+      var am = text.match(/\b(\d{2,3})[\s-]*(?:y\.?\s*o\.?\b|y\/o\b|years?[\s-]*old\b|yrs?[\s-]*old\b)/i);
+      if (am) { var av = +am[1]; if (av >= 18 && av <= 110) { out.age = av; found.age = "scanned"; } }
+    }
+    if (found.sex === undefined) {
+      // "female" is tested first because "male" would otherwise match inside it.
+      if (/\b(?:female|woman|lady)\b/i.test(text)) { out.sex = "female"; found.sex = "scanned"; }
+      else if (/\b(?:male|man|gentleman)\b/i.test(text)) { out.sex = "male"; found.sex = "scanned"; }
+      else { var sm = text.match(/\d\s*(?:y\.?\s*o\.?|y\/o|yo|years?[-\s]*old)\s*([MF])\b/i); if (sm) { out.sex = /f/i.test(sm[1]) ? "female" : "male"; found.sex = "scanned"; } }
+    }
     scanClinical(text, out, found, thresholds); // scrape labs/vitals from unstructured text
     var inferred = inferFlags(text, out, found); // meds/problems/social hx -> Yes/No flags
     var warnings = validateParsed(out, thresholds);
@@ -377,7 +391,9 @@
     var masked = line.replace(/\([^)]*\)/g, function (s) { return s.replace(/[^\n]/g, " "); })
                      .replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g, function (s) { return s.replace(/./g, " "); })
                      .replace(/\d{1,2}:\d{2}(?::\d{2})?/g, function (s) { return s.replace(/./g, " "); });
-    var re = /\d{1,2}(?:\.\d+)?/g, m;
+    // The boundaries matter: without them "142/88" yields "14", a plausible-looking
+    // A1c invented from a blood pressure.
+    var re = /(?<![\d.])\d{1,2}(?:\.\d+)?(?![\d.])/g, m;
     while ((m = re.exec(masked)) !== null) {
       if (m.index < (start || 0)) continue;
       var val = parseFloat(m[0]);
@@ -658,8 +674,10 @@
     if (FAMILY_CUE_RE.test(before)) return true;
     // "Father: lung cancer (smoker)" — a relative named earlier on the line, with a
     // separator after it, owns what follows.
+    // Also "His wife has diabetes" / "mother with T2DM": a relative followed by a
+    // separator OR a linking verb owns everything after it on that line.
     var rel = RELATIVE_RE.exec(before);
-    if (rel && /[-:(,]/.test(before.slice(rel.index + rel[0].length))) return true;
+    if (rel && /[-:(,]|\b(?:has|had|have|with|w\/|is|was|were|developed|died\s+of)\b/i.test(before.slice(rel.index + rel[0].length))) return true;
     return false;
   }
   function lineAround(text, idx) {
