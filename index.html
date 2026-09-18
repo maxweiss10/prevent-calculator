@@ -372,10 +372,10 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=31"></script>
-<script src="prevent.js?v=31"></script>
-<script src="app.js?v=31"></script>
-<script src="guideline.js?v=31"></script>
+<script src="coeffs.js?v=32"></script>
+<script src="prevent.js?v=32"></script>
+<script src="app.js?v=32"></script>
+<script src="guideline.js?v=32"></script>
 <script>
 (function () {
   "use strict";
@@ -689,6 +689,7 @@
       return;
     }
     var out = APP.computeAll(v);
+    state.outOfRange = out.outOfRange || [];
     var enh = out.enhanced;
     var useEnhanced = !!enh;
     var primary = useEnhanced ? enh : out.base;
@@ -771,7 +772,21 @@
           'The form shows the <b>primary</b> value — check each against Epic and correct if wrong.</div>';
     }
 
-    box.innerHTML = conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>';
+    // Outside the range the equations were fitted on, the result is an
+    // extrapolation. It is shown, because a clinician may still want a rough
+    // sense of it, but it must not look like every other result.
+    var rangeMsg = "";
+    if (out.outOfRange && out.outOfRange.length) {
+      var ritems = out.outOfRange.map(function (o) {
+        return "<b>" + esc(o.label) + " " + esc(String(o.value)) + "</b> \u2014 validated range is " + o.lo + "\u2013" + o.hi;
+      });
+      rangeMsg = '<div class="panelmsg conflict"><b>\u26a0 Outside the validated range \u2014 this is an extrapolation, not a validated estimate.</b>' +
+        '<ul class="msglist"><li>' + ritems.join("</li><li>") + '</li></ul>' +
+        'The PREVENT equations were fitted and tested only within these limits. A number is still shown below, ' +
+        'but it has not been validated for this patient, and neither has the guideline pathway derived from it. ' +
+        'Treat it as a rough indication and do not paste it into a note as a risk estimate.</div>';
+    }
+    box.innerHTML = rangeMsg + conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>';
     var rec = renderRecs(v, primary);
     renderPlan(v, out, primary, rec);
     document.getElementById("resultNotes").innerHTML = msgs;
@@ -797,7 +812,14 @@
       cac: v.cac, lpa: v.lpa, enhancers: state.enhancers || [],
     });
 
-    var html = '<div class="rechead">' +
+    var html = "";
+    if (state.outOfRange && state.outOfRange.length) {
+      html += '<div class="panelmsg conflict" style="margin-top:0;"><b>\u26a0 Based on an extrapolated risk.</b> ' +
+        esc(state.outOfRange.map(function (o) { return o.label + " " + o.value; }).join(", ")) +
+        (state.outOfRange.length > 1 ? ' fall' : ' falls') +
+        ' outside the validated range, so the pathway below rests on a number the equations were never tested to produce.</div>';
+    }
+    html += '<div class="rechead">' +
       '<div class="path">' + esc(rec.pathwayLabel) +
       (rec.category && rec.pathway === "risk" ? ' · ' + esc(rec.category.label) + ' risk (' + rec.category.range + ')' : '') +
       '</div><div class="hl">' + esc(rec.headline) + '</div>' +
@@ -906,6 +928,12 @@
       }
       lines.push("2026 ACC/AHA" + (PATH_TAG[rec.pathway] || "") + ": " + rec.headline.replace(/\.$/, "") +
         "; LDL-C goal <" + g.ldl + " mg/dL" + now + ", non-HDL-C <" + g.nonhdl + ".");
+    }
+    // A pasted line outlives this page, so the caveat has to travel with it.
+    if (out.outOfRange && out.outOfRange.length) {
+      lines.push("NOTE: extrapolated beyond PREVENT's validated range (" +
+        out.outOfRange.map(function (o) { return o.label + " " + o.value; }).join(", ") +
+        "); not a validated estimate.");
     }
     return ascii(lines.join("\n"));
   }

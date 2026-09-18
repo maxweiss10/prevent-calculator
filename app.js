@@ -1328,6 +1328,30 @@
     return "full";
   }
 
+  // ---- Validated-range reporting ----------------------------------------
+  // The equations return a number for ANY input, which is precisely the danger:
+  // an 85-year-old gets a result that looks exactly like a validated one. PREVENT
+  // was fitted and validated only within these limits, so anything outside them is
+  // an extrapolation and is reported as such rather than silently computed.
+  var RANGE_LABEL = { age: "Age", sbp: "Systolic BP", bmi: "BMI", egfr: "eGFR",
+                      total_c: "Total cholesterol", hdl_c: "HDL cholesterol" };
+  function validatedRange(key, unit) {
+    if (key === "total_c") return unit === "mmol/L" ? RANGES.total_c_mmol : RANGES.total_c_mgdl;
+    if (key === "hdl_c") return unit === "mmol/L" ? RANGES.hdl_c_mmol : RANGES.hdl_c_mgdl;
+    return RANGES[key];
+  }
+  function outOfValidatedRange(inp) {
+    var out = [];
+    Object.keys(RANGE_LABEL).forEach(function (k) {
+      var val = inp[k];
+      if (val === null || val === undefined || isNaN(val)) return;
+      var r = validatedRange(k, inp.chol_unit);
+      if (!r) return;
+      if (val < r[0] || val > r[1]) out.push({ key: k, label: RANGE_LABEL[k], value: val, lo: r[0], hi: r[1] });
+    });
+    return out;
+  }
+
   // ---- Public compute wrapper -------------------------------------------
   // Returns { base:{r10,r30}, enhanced:{model,r10,r30}|null, problems:[], warnings:[] }
   function computeAll(inp) {
@@ -1347,11 +1371,12 @@
     var enhanced = model === "base" ? null :
       { model: model, r10: PREVENT.riskFor(eff, model, "10yr", PREVENT_COEFFS, null),
                        r30: PREVENT.riskFor(eff, model, "30yr", PREVENT_COEFFS, null) };
-    return { base: base, enhanced: enhanced, model: model, problems: problems, warnings: warnings };
+    return { base: base, enhanced: enhanced, model: model, problems: problems, warnings: warnings,
+             outOfRange: outOfValidatedRange(inp) };
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, disqualifiedSpans, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, outOfValidatedRange, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, disqualifiedSpans, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();
