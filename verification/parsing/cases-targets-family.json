@@ -1,0 +1,19 @@
+[
+ {"name":"target-ldl-goal","text":"Age: 58\nSex: M\nA/P:\n1. HLD: LDL goal < 70, discussed diet.","want":{"ldl_c":null},"note":"A treatment target is not a measured value. Reading 70 as the LDL would drive the guideline layer off a number the patient never had."},
+ {"name":"target-bp-goal","text":"Age: 58\nSex: M\nA/P:\n1. HTN: BP goal < 130/80.","want":{"sbp":null},"note":"A BP goal is not a reading."},
+ {"name":"target-a1c","text":"Age: 58\nSex: M\nA/P:\n1. DM: target A1c < 7","want":{"hba1c":null},"note":"An A1c target is not a result."},
+ {"name":"target-total-chol","text":"Age: 58\nSex: M\nPlan: goal total cholesterol under 200","want":{"total_c":null},"note":"A cholesterol goal is not a lab value."},
+ {"name":"target-bmi-goal","text":"Age: 58\nSex: M\nPlan: weight loss, goal BMI < 25","want":{"bmi":null},"note":"A BMI goal is not a measurement."},
+ {"name":"target-bmi-explicit","text":"Age: 58\nSex: M\nTarget BMI 24.9 by next visit","want":{"bmi":null},"note":"'Target BMI 24.9' is the aim, not the current BMI."},
+ {"name":"target-cue-after-number-still-parses","text":"Age: 58\nSex: M\nBP 128/78, at goal on lisinopril 20 mg","want":{"sbp":128,"bp_tx":true},"note":"'at goal' describes the state and sits AFTER the reading, so 128 is a real systolic."},
+ {"name":"goals-of-care-is-not-a-target","text":"Age: 58\nSex: M\nGoals of care discussed with family. BMI 31.4","want":{"bmi":31.4},"note":"'Goals of care' is a conversation, not a treatment target; the BMI on that line is real."},
+ {"name":"family-bmi-not-the-patients","text":"Age: 58\nSex: M\nFamily History:\n  Mother: obesity, BMI 41","want":{"bmi":null},"note":"A relative's BMI must never become the patient's."},
+ {"name":"family-chol-not-the-patients","text":"Age: 58\nSex: M\nFamily History:\n  Father: hyperlipidemia, total cholesterol 310","want":{"total_c":null},"note":"A relative's cholesterol must never become the patient's."},
+ {"name":"family-bp-not-the-patients","text":"Age: 58\nSex: M\nFamily History:\nFather: HTN, BP 180/110","want":{"sbp":null},"note":"Unindented but led by the relative's name - still the father's reading."},
+ {"name":"family-a1c-not-the-patients","text":"Age: 58\nSex: M\nFamily History:\n  Mother: T2DM, A1c 9.2","want":{"hba1c":null},"note":"A relative's A1c must never become the patient's."},
+ {"name":"family-egfr-not-the-patients","text":"Age: 58\nSex: M\nFamily History:\n  Mother: CKD, eGFR 22","want":{"egfr":null},"note":"A relative's eGFR must never become the patient's - this one would have moved the risk a long way."},
+ {"name":"patient-vitals-after-family-block","text":"Age: 58\nSex: M\nFamily History:\n  Mother: obesity, BMI 41\nVitals: BMI 31.4","want":{"bmi":31.4},"note":"A new left-margin label line ends the family-history block, so the patient's own BMI is still read."},
+ {"name":"patient-labs-after-family-block","text":"Age: 58\nSex: M\nFamily History:\n  Mother: T2DM, A1c 9.2\nLabs: Chol 198, HDL 51","want":{"total_c":198,"hdl_c":51,"hba1c":null},"note":"The patient's labs parse; the mother's A1c does not."},
+ {"name":"bmi-euro-decimal-comma","text":"Age: 58\nSex: M\nBMI 31,4 kg/m2","want":{"bmi":31.4},"note":"A European decimal comma must not truncate a BMI of 31,4 to 31."},
+ {"name":"bmi-increased-from-to-takes-current","text":"Age: 58\nSex: M\nBMI increased from 28.1 to 31.4 over 2 years","want":{"bmi":31.4},"note":"In a 'from A to B' trend the current value is B; taking 28.1 would understate the risk."}
+]

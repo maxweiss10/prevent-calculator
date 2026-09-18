@@ -256,6 +256,12 @@
       // (an obesity/category descriptor, not a measured value).
       if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
+      // European decimal comma for fields that are written that way abroad
+      // ("BMI 31,4 kg/m2"); without this the value truncates to 31.
+      if (opts.decimalComma) after = after.replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2");
+      // "increased from 28.1 to 31.4" — the current value is the one after "to".
+      var fromTo = after.match(/^[^\d\n]{0,24}from\s+[\d.,]+\s+to\s+([\d.,]+)/i);
+      if (fromTo) after = " " + fromTo[1];
       var result = extractNum(after, opts.thousands);
       var unitScope = after; // where a required unit (opts.requireUnit) must appear
       // vertical-layout fallback: label on its own line, value on the NEXT line.
@@ -326,7 +332,8 @@
     for (var i = 0; i < lines.length; i++) {
       if (!/\bbmi\b|body\s*mass/i.test(lines[i])) continue;
       for (var j = i; j < Math.min(lines.length, i + 6); j++) {
-        var m = lines[j].match(/\d{1,2}\/\d{1,2}\/\d{2,4}(?:\s*[:\-–]\s*|\s+)(\d{2,3}(?:\.\d+)?)/);
+        var m = lines[j].replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2")
+                        .match(/\d{1,2}\/\d{1,2}\/\d{2,4}(?:\s*[:\-–]\s*|\s+)(\d{2,3}(?:\.\d+)?)/);
         if (m) { var v = parseFloat(m[1]); if (v >= 12 && v <= 80) return v; }
       }
     }
@@ -425,7 +432,48 @@
     return last || "";
   }
 
+  // Numbers that are not measurements OF THIS PATIENT: treatment targets
+  // ("LDL goal <70", "BP goal <130/80", "Target BMI 24.9") and relatives' values in
+  // a family history ("Mother: obesity, BMI 41"). Both used to land in the form as
+  // real measurements for EVERY numeric field, which silently changes the risk.
+  // The cue must sit BEFORE the number, so "BP 128/78, at goal" still parses.
+  var TARGET_CUE = /\b(?:goals?|targets?|aim(?:ing)?\s+for|keep\s+(?:it\s+)?(?:under|below)|maintain|should\s+be|desired?|ideally)\b/i;
+  // Masking is length-preserving so character offsets stay valid for the source
+  // highlighter, which still shows these numbers (flagged, not silently dropped).
+  function maskDisqualifiedLines(text) {
+    var lines = text.split("\n"), pos = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i], d = ln.search(/\d/);
+      if (d >= 0) {
+        var fam = isFamilyContext(text, pos + d);
+        // A new left-margin "Label: value" line ("Vitals: BMI 31.4") starts a new
+        // topic and ends the family-history block, even though it is not a
+        // standalone header. Indented rows and lines led by a relative's name
+        // still belong to the relatives.
+        if (fam && /^\S[^:\n]{0,30}:/.test(ln) && !RELATIVE_RE.test(ln.split(":")[0])) fam = false;
+        if (fam) {
+          lines[i] = ln.replace(/[^\n]/g, " ");
+        } else {
+          // Mask from the target word to end of line, not the whole line: a numbered
+          // A/P item ("1. HLD: LDL goal < 70") puts a digit BEFORE the cue, and
+          // "BP 128/78, at goal" puts a real reading before it. Everything after the
+          // cue is the target.
+          var probe = ln.replace(/goals?\s+of\s+care/gi, function (x) { return x.replace(/./g, " "); });
+          var cue = probe.search(TARGET_CUE);
+          if (cue >= 0 && /\d/.test(ln.slice(cue)))
+            lines[i] = ln.slice(0, cue) + ln.slice(cue).replace(/[^\n]/g, " ");
+        }
+      }
+      pos += ln.length + 1;
+    }
+    return lines.join("\n");
+  }
+
   function scanClinical(text, out, found, thresholds) {
+    // Every numeric scan below runs on the masked copy. Flag inference still gets
+    // the ORIGINAL text, because detectDiabetes/detectSmoking need to see a
+    // family-history line in order to recognise and skip it.
+    text = maskDisqualifiedLines(text);
     function tryField(key, namePat, opts) {
       if (found[key] !== undefined) return;
       var result = scanField(text, namePat, opts);
@@ -438,7 +486,7 @@
     if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
     // rejectRange stops "Obesity (BMI 30.0-34.9)" (a diagnosis category) from being
     // read as a measured BMI of 30.0.
-    tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true, rejectRange: true });
+    tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true, rejectRange: true, decimalComma: true });
     // @LASTBMI(n)@ dated reading list (BP-style) when a direct BMI isn't labeled.
     if (found.bmi === undefined) { var bmiList = scanBmiList(text); if (bmiList !== null) { out.bmi = bmiList; found.bmi = "scanned"; } }
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
@@ -925,7 +973,7 @@
 
   function parseIndependent(text) {
     if (!text) return {};
-    text = normalizeText(text);
+    text = maskDisqualifiedLines(normalizeText(text));
     var V = {};
 
     // sex — word presence (independent of the primary's label pass)
