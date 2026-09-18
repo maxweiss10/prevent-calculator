@@ -210,5 +210,37 @@
    "bmi": null
   },
   "note": "A family cue anywhere on the line keeps it out."
+ },
+ {
+  "name": "two-targets-one-line",
+  "text": "Age: 58\nSex: M\nA/P: If LDL were 70 risk would fall. LDL goal < 65.",
+  "want": {
+   "ldl_c": null
+  },
+  "note": "One plan line can hold several targets. Each sentence is judged on its own, so a second target is not left standing because the first was handled."
+ },
+ {
+  "name": "hypothetical-then-real-value",
+  "text": "Age: 58\nSex: M\nA/P: If LDL were 70 risk would fall. LDL today 118.",
+  "want": {
+   "ldl_c": 118
+  },
+  "note": "The hypothetical is confined to its own sentence."
+ },
+ {
+  "name": "three-sentences-target-then-reading",
+  "text": "Age: 58\nSex: M\nA/P: BP goal <130. BP today 142/88. Recheck in 4 weeks.",
+  "want": {
+   "sbp": 142
+  },
+  "note": "A target, a reading, then a follow-up interval."
+ },
+ {
+  "name": "reading-then-target-same-line",
+  "text": "Age: 58\nSex: M\nA/P: LDL 118 today. LDL goal < 70.",
+  "want": {
+   "ldl_c": 118
+  },
+  "note": "Order within the line must not matter."
  }
 ]

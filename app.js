@@ -557,17 +557,22 @@
           // patient has REACHED — "HTN at goal. BP 128/78" is a real reading.
           var probe = ln.replace(/goals?\s+of\s+care|\bat\s+(?:goal|target)\b/gi,
                                  function (x) { return x.replace(/./g, " "); });
-          var cue = probe.search(TARGET_CUE);
-          var why = "a treatment target, not a measurement";
-          var hyp = probe.search(HYPOTHETICAL_CUE);
-          if (hyp >= 0 && (cue < 0 || hyp < cue)) { cue = hyp; why = "a hypothetical or projected value"; }
-          if (cue >= 0) {
-            // Mask only to the end of the SENTENCE, not the line: "BP goal <130.
-            // Today BP 142/88" states the target and then the actual reading.
-            var stop = ln.slice(cue).search(/[.;]\s/);
-            var end = stop >= 0 ? cue + stop + 1 : ln.length;
-            if (/\d/.test(ln.slice(cue, end)))
-              out.push({ start: pos + cue, end: pos + end, reason: why });
+          // Each SENTENCE on the line is judged separately, because one plan line
+          // can hold several ("If LDL were 70 risk would fall. LDL goal < 65.").
+          // Masking runs from the cue to the end of its own sentence, so a target
+          // never swallows the reading reported in the next one.
+          var from = 0;
+          while (from < ln.length) {
+            var rel = probe.slice(from).search(/[.;]\s/);
+            var sEnd = rel >= 0 ? from + rel + 1 : ln.length;
+            var seg = probe.slice(from, sEnd);
+            var cue = seg.search(TARGET_CUE);
+            var why = "a treatment target, not a measurement";
+            var hyp = seg.search(HYPOTHETICAL_CUE);
+            if (hyp >= 0 && (cue < 0 || hyp < cue)) { cue = hyp; why = "a hypothetical or projected value"; }
+            if (cue >= 0 && /\d/.test(ln.slice(from + cue, sEnd)))
+              out.push({ start: pos + from + cue, end: pos + sEnd, reason: why });
+            from = sEnd;
           }
         }
       }
