@@ -129,7 +129,55 @@
     };
   }
 
-  const api = { buildTerms, riskFor, estimate, roundHalfUp, OUTCOMES, CHOL_TO_MMOL };
+  // Each model term's contribution to the log-odds, grouped by the clinical input
+  // it comes from. Splines and age interactions mean one input spans several
+  // terms, so the grouping is what a reader can actually act on. Contributions
+  // are relative to a reference patient in whom every term is at its zero point
+  // (the equations' own centring), so they show what moves THIS patient away from
+  // that reference, not an absolute cause.
+  const TERM_GROUP = {
+    age: "Age", age_non_hdl_c: "Cholesterol", age_hdl_c: "Cholesterol",
+    non_hdl_c: "Cholesterol", hdl_c: "Cholesterol", statin_non_hdl_c: "Cholesterol",
+    sbp_lt_110: "Blood pressure", sbp_gte_110: "Blood pressure",
+    age_sbp_gte_110: "Blood pressure", bp_tx_sbp_gte_110: "Blood pressure",
+    dm: "Diabetes", age_dm: "Diabetes",
+    // HbA1c is its own row: grouping it under Diabetes reads as a contradiction
+    // when the patient is marked non-diabetic but carries a raised HbA1c.
+    hba1c_dm: "HbA1c", hba1c_no_dm: "HbA1c", missing_hba1c: "HbA1c",
+    smoking: "Smoking", age_smoking: "Smoking",
+    bmi_lt_30: "BMI", bmi_gte_30: "BMI", age_bmi_gte_30: "BMI",
+    egfr_lt_60: "Kidney function", egfr_gte_60: "Kidney function",
+    age_egfr_lt_60: "Kidney function", ln_uacr: "Kidney function",
+    missing_uacr: "Kidney function",
+    bp_tx: "On antihypertensive", statin: "On statin",
+    sdi_4_to_6: "Social deprivation", sdi_7_to_10: "Social deprivation",
+    missing_sdi: "Social deprivation",
+    constant: "Baseline",
+  };
+  function contributions(inp, model, time, coeffs, outcome) {
+    const table = coeffs[model + "_" + time];
+    if (!table) throw new Error("no coeff table for " + model + "_" + time);
+    const terms = buildTerms(inp, inp.chol_unit);
+    const sex = inp.sex === "male" || inp.sex === "m" ? "male" : "female";
+    const col = table.cols[sex + "_" + (outcome || "ascvd")];
+    const byGroup = {}, order = [];
+    let lp = 0;
+    for (let i = 0; i < table.terms.length; i++) {
+      const key = table.terms[i];
+      const c = col[i] * terms[key];
+      lp += c;
+      const g = TERM_GROUP[key] || key;
+      if (byGroup[g] === undefined) { byGroup[g] = 0; order.push(g); }
+      byGroup[g] += c;
+    }
+    const risk = Math.exp(lp) / (1 + Math.exp(lp));
+    const groups = order.map((g) => ({ group: g, logOdds: byGroup[g] }))
+      .filter((x) => x.group !== "Baseline");
+    groups.sort((a, b) => Math.abs(b.logOdds) - Math.abs(a.logOdds));
+    return { risk, logOdds: lp, baseline: byGroup["Baseline"] || 0, groups };
+  }
+
+  const api = { buildTerms, riskFor, estimate, roundHalfUp, OUTCOMES, CHOL_TO_MMOL, contributions, TERM_GROUP };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PREVENT = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

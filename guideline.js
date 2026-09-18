@@ -404,6 +404,20 @@
     return isNaN(n) ? null : n;
   }
 
+  // The branches above phrase the intensity in `headline`; this derives the same
+  // thing in a form code can use (for the absolute-benefit estimate), from one
+  // place rather than by touching every branch.
+  function withIntensity(out) {
+    var h = out && out.headline || "";
+    out.intensity = /moderate-\s*to\s*-?\s*high/i.test(h) ? "modhigh"
+                  : /high-intensity|maximally\s+tolerated/i.test(h) ? "high"
+                  : /moderate-intensity/i.test(h) ? "moderate"
+                  : null;
+    return out;
+  }
+  var recommendRaw = recommend;
+  recommend = function (ctx) { return withIntensity(recommendRaw(ctx)); };
+
   var api = { recommend: recommend, categorize: categorize, ENHANCERS: ENHANCERS, INTENSITY: INTENSITY,
     reductionNeeded: reductionNeeded };
   if (typeof window !== "undefined") window.PREVENT_GUIDELINE = api;

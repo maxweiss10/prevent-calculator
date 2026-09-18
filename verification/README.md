@@ -30,6 +30,7 @@ node verification/parsing/adversarial-probe.js
 node verification/parsing/run-cases.js verification/parsing/cases-*.json
 node verification/parsing/units-integration-test.js
 node verification/parsing/guideline-units-test.js
+node verification/parsing/insight-test.js
 node verification/parsing/robustness-test.js
 node verification/parsing/edge-generator.js   # expects a 0.00% false-alarm rate
 ```
@@ -45,6 +46,14 @@ guideline is written entirely in mg/dL and the page converts at the boundary, so
 a missed conversion would leave the risk number untouched while quietly changing
 the treatment advice. It asserts an identical pathway, headline, goals and
 category in both unit systems across every pathway the guideline has.
+
+`insight-test.js` covers the decision-support layer built on top of the risk
+number: the dates the parser attaches to each value (so the page can flag a
+two-year-old cholesterol), the contradiction checks, the contribution breakdown,
+and the absolute-benefit estimate. The breakdown has a hard correctness property
+worth keeping: its per-input contributions must reconstruct EXACTLY the risk the
+engine reports, for every outcome, horizon and model. If they ever diverge, the
+panel is explaining a different calculation from the one on screen.
 
 `robustness-test.js` is the crash floor: empty input, an unresolved SmartPhrase
 template, CRLF, non-breaking spaces, HTML, JSON, emoji, a 40 KB line, regex

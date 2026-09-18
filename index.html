@@ -81,6 +81,18 @@
   .hl-x { background: rgba(192,57,43,0.26); background: color-mix(in srgb, var(--high) 26%, transparent); outline: 1px solid var(--high); }
   .hl-miss { background: rgba(192,57,43,0.15); background: color-mix(in srgb, var(--high) 15%, transparent); border-bottom: 2px dashed var(--high); font-weight: 700; }
   .hl-dia { opacity: .5; }
+  details.maths { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  details.maths > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+  .mrow { display: grid; grid-template-columns: 148px 1fr 54px; align-items: center; gap: 8px; margin-top: 5px; }
+  .mlab { font-size: 12px; }
+  .mbarwrap { background: rgba(120,120,120,0.12); border-radius: 3px; height: 10px; }
+  .mbar { height: 10px; border-radius: 3px; }
+  .mup { background: rgba(192,57,43,0.55); background: color-mix(in srgb, var(--high) 55%, transparent); }
+  .mdn { background: rgba(26,127,82,0.55); background: color-mix(in srgb, var(--ok) 55%, transparent); }
+  .mval { font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+  .mnote { font-size: 12px; opacity: .75; margin-top: 8px; line-height: 1.45; }
+  .benefit { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-top: 4px; }
+  .brow { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 3px 0; }
   .hl-ex { background: rgba(120,120,120,0.16); color: inherit; opacity: .62; text-decoration: line-through;
            text-decoration-thickness: 1px; }
   .srclegend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
@@ -372,14 +384,17 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=32"></script>
-<script src="prevent.js?v=32"></script>
-<script src="app.js?v=32"></script>
-<script src="guideline.js?v=32"></script>
+<script src="coeffs.js?v=33"></script>
+<script src="prevent.js?v=33"></script>
+<script src="app.js?v=33"></script>
+<script src="guideline.js?v=33"></script>
 <script>
 (function () {
   "use strict";
-  var APP = window.PREVENT_APP, ENGINE = window.PREVENT, C = window.PREVENT_COEFFS;
+  var APP = window.PREVENT_APP, ENGINE = window.PREVENT;
+  // coeffs.js declares PREVENT_COEFFS with const, so it is a script-scope binding
+  // and NOT a property of window — window.PREVENT_COEFFS is undefined.
+  var C = (typeof PREVENT_COEFFS !== "undefined") ? PREVENT_COEFFS : window.PREVENT_COEFFS;
   var GUIDE = window.PREVENT_GUIDELINE;
   var state = { chol_unit: "mg/dL", values: {}, parsed: {} };
 
@@ -555,6 +570,7 @@
     state.thresholds = res.thresholds || {};
     state.parseWarnings = res.warnings || [];
     state.conflicts = res.conflicts || {};
+    state.dates = res.dates || {};
     state.second = res.second || {};
     state.computedEgfr = res.found.egfr === "computed_from_cr" ? res.values.egfr : null;
     Object.keys(res.values).forEach(function (k) {
@@ -631,6 +647,47 @@
   // ---- compute + render ----
   var PRIM = [["total_cvd", "Total CVD"], ["ascvd", "ASCVD"], ["heart_failure", "Heart Failure"]];
   function pct(x) { return (x * 100).toFixed(1) + "%"; }
+  function pp(x) { return (x * 100).toFixed(1) + " percentage points"; }
+
+  // How old is a value the parser dated? Stamps are yyyymmdd integers.
+  function monthsOld(stamp) {
+    if (stamp == null) return null;
+    var y = Math.floor(stamp / 10000), m = Math.floor(stamp / 100) % 100, d = stamp % 100;
+    var then = new Date(y, m - 1, d), now = new Date();
+    if (isNaN(then.getTime()) || then > now) return null;
+    return (now.getFullYear() - y) * 12 + (now.getMonth() - (m - 1)) - (now.getDate() < d ? 1 : 0);
+  }
+  function stampLabel(stamp) {
+    var m = String(Math.floor(stamp / 100) % 100).padStart(2, "0");
+    return m + "/" + Math.floor(stamp / 10000);
+  }
+  function agePhrase(mo) {
+    if (mo < 24) return mo + " months old";
+    return (mo / 12).toFixed(mo % 12 === 0 ? 0 : 1) + " years old";
+  }
+
+  // Recompute the whole chain for a hypothetical set of values, and summarise the
+  // recommendation, so we can say whether changing one input changes MANAGEMENT.
+  function recSummary(vv) {
+    try {
+      if (missingRequired(vv).length) return null;
+      var o = APP.computeAll(vv);
+      var pr = o.enhanced || o.base;
+      var r = GUIDE.recommend({
+        age: vv.age, sex: vv.sex, dm: vv.dm, smoking: vv.smoking, statin: vv.statin,
+        ascvd10: pr.r10.ascvd, ascvd30: vv.age <= 59 ? pr.r30.ascvd : null,
+        ldl: toMgdl(vv.ldl_c), tc: toMgdl(vv.total_c), hdl: toMgdl(vv.hdl_c),
+        clinicalAscvd: vv.ascvd_hx === true, veryHigh: vv.veryhigh === true,
+        cac: vv.cac, lpa: vv.lpa, enhancers: state.enhancers || [],
+      });
+      return { ascvd: pr.r10.ascvd, cat: r.category ? r.category.label : null,
+               ldlGoal: r.goals ? r.goals.ldl : null, headline: r.headline, pathway: r.pathway };
+    } catch (e) { return null; }
+  }
+  function sameManagement(a, b) {
+    if (!a || !b) return true;
+    return a.cat === b.cat && a.ldlGoal === b.ldlGoal && a.headline === b.headline && a.pathway === b.pathway;
+  }
   // 2026 PREVENT-ASCVD categories (<3 / 3–<5 / 5–<10 / ≥10). These are deliberately
   // NOT the 2018/2019 PCE cutpoints of 5 / 7.5 / 20 — PREVENT is better calibrated and
   // reads lower than the PCE, so the guideline lowered the bands to match it.
@@ -729,6 +786,25 @@
     if (state.computedEgfr != null && Math.abs(v.egfr - state.computedEgfr) < 0.5)
       probs.push("eGFR was computed from serum creatinine (CKD-EPI 2021), not reported directly — verify.");
     if (age > 59) probs.push("30-year estimates are shown but were only validated for ages 30–59.");
+    // Stale values: Epic prints the MOST RECENT result, which can still be years
+    // old. The risk then rests on numbers that no longer describe the patient.
+    if (state.dates) {
+      var FLD = { total_c: "Total cholesterol", hdl_c: "HDL", ldl_c: "LDL-C", egfr: "eGFR",
+                  hba1c: "HbA1c", sbp: "Systolic BP", bmi: "BMI" };
+      var stale = [];
+      Object.keys(FLD).forEach(function (k) {
+        var mo = monthsOld(state.dates[k]);
+        // only complain if the value the form is USING is the one we dated
+        if (mo != null && mo >= 12 && v[k] != null)
+          stale.push(FLD[k] + " is from " + stampLabel(state.dates[k]) + " (" + agePhrase(mo) + ")");
+      });
+      if (stale.length)
+        probs.push("<b>Dated values:</b> " + stale.join("; ") +
+          ". Epic prints the most recent result, which can still be old \u2014 confirm these still describe the patient.");
+    }
+    // Contradictions: two values that cannot both be true.
+    var contras = APP.crossFieldWarnings(v);
+    contras.forEach(function (c) { probs.push("<b>Check:</b> " + c); });
     if (probs.length) {
       msgs = '<div class="panelmsg warn"><b>Notes</b><ul class="msglist"><li>' +
         probs.join("</li><li>") + '</li></ul></div>';
@@ -786,10 +862,90 @@
         'but it has not been validated for this patient, and neither has the guideline pathway derived from it. ' +
         'Treat it as a rough indication and do not paste it into a note as a risk estimate.</div>';
     }
+    // Which single uncertain input, if wrong, would change MANAGEMENT? More useful
+    // than which one moves the number: it says what is worth re-checking in Epic.
+    var flipMsg = "";
+    var baseSummary = recSummary(v);
+    if (baseSummary) {
+      var flips = [], FL2 = {}; ALL().forEach(function (f) { FL2[f.key] = f.label; });
+      function consider(key, altVal, how) {
+        if (altVal === undefined || altVal === null) return;
+        if (v[key] === altVal) return;
+        var alt = recSummary(withField(v, key, altVal));
+        if (alt && !sameManagement(baseSummary, alt))
+          flips.push({ key: key, how: how, from: baseSummary, to: alt, altVal: altVal });
+      }
+      // auto-detected Yes/No answers: what if the opposite is true?
+      Object.keys(state.inferred || {}).forEach(function (k) {
+        var inf = state.inferred[k];
+        if (v[k] === inf.value) consider(k, !inf.value, "auto-detected as " + (inf.value ? "Yes" : "No"));
+      });
+      // a reported threshold is a floor, not a measurement: try a plausible real value
+      Object.keys(state.thresholds || {}).forEach(function (k) {
+        var op = state.thresholds[k];
+        if (v[k] == null) return;
+        var alt = op === ">" || op === "\u2265" ? v[k] * 1.5 : v[k] * 0.5;
+        var rng = k === "egfr" ? APP.RANGES.egfr : null;
+        if (rng) alt = Math.min(Math.max(alt, rng[0]), rng[1]);
+        consider(k, Math.round(alt), "reported only as \u201c" + op + v[k] + "\u201d");
+      });
+      // a field the two parsers disagreed on
+      Object.keys(state.conflicts || {}).forEach(function (k) {
+        if (state.conflicts[k] !== "conflict") return;
+        var sv = (state.second || {})[k];
+        if (k === "egfr" && sv == null) sv = (state.second || {}).egfr_cr;
+        consider(k, sv, "the two parsers disagree");
+      });
+      if (flips.length) {
+        var fitems = flips.map(function (f) {
+          return "<b>" + esc(FL2[f.key] || f.key) + "</b> (" + esc(f.how) + "): if it were <b>" +
+            esc(String(typeof f.altVal === "boolean" ? (f.altVal ? "Yes" : "No") : f.altVal)) + "</b>, " +
+            "10-yr ASCVD " + pct(f.from.ascvd) + " \u2192 " + pct(f.to.ascvd) +
+            " and the recommendation changes from <b>" + esc(f.from.headline.replace(/\.$/, "")) +
+            "</b> (LDL-C goal " + (f.from.ldlGoal == null ? "\u2014" : "&lt;" + f.from.ldlGoal) + ")" +
+            " to <b>" + esc(f.to.headline.replace(/\.$/, "")) +
+            "</b> (goal " + (f.to.ldlGoal == null ? "\u2014" : "&lt;" + f.to.ldlGoal) + ")";
+        });
+        flipMsg = '<div class="panelmsg warn"><b>These inputs would change the recommendation if wrong</b>' +
+          '<ul class="msglist"><li>' + fitems.join("</li><li>") + "</li></ul>" +
+          "Everything else you were asked to verify moves the number without changing what you would do.</div>";
+      }
+    }
     box.innerHTML = rangeMsg + conflictMsg + badge + '<div class="horizons">' + h10 + h30 + '</div>';
     var rec = renderRecs(v, primary);
     renderPlan(v, out, primary, rec);
-    document.getElementById("resultNotes").innerHTML = msgs;
+    document.getElementById("resultNotes").innerHTML = flipMsg + mathsPanel(v, out, primary) + msgs;
+  }
+
+  // What is actually driving this number. The equations work in log-odds, so each
+  // clinical input contributes on that scale; the bars show relative size and the
+  // sign shows direction. Contributions are measured against the equations' own
+  // reference point, not against a healthy person, so a zero means "at the
+  // reference", not "not a risk factor".
+  function mathsPanel(v, out, primary) {
+    if (!ENGINE.contributions) return "";
+    var c;
+    try { c = ENGINE.contributions(v, out.model, "10yr", C, "ascvd"); }
+    catch (e) { return ""; }
+    var shown = c.groups.filter(function (g) { return Math.abs(g.logOdds) > 0.005; });
+    if (!shown.length) return "";
+    var max = Math.max.apply(null, shown.map(function (g) { return Math.abs(g.logOdds); }));
+    var rows = shown.map(function (g) {
+      var w = Math.round((Math.abs(g.logOdds) / max) * 100);
+      var up = g.logOdds > 0;
+      return '<div class="mrow"><div class="mlab">' + esc(g.group) + '</div>' +
+        '<div class="mbarwrap"><div class="mbar ' + (up ? "mup" : "mdn") + '" style="width:' + w + '%"></div></div>' +
+        '<div class="mval">' + (up ? "+" : "\u2212") + Math.abs(g.logOdds).toFixed(2) + "</div></div>";
+    }).join("");
+    var zero = c.groups.filter(function (g) { return Math.abs(g.logOdds) <= 0.005; })
+                       .map(function (g) { return g.group; });
+    return '<details class="maths"><summary>Show the maths \u2014 what is driving this estimate</summary>' +
+      '<div class="mnote">Each clinical input\u2019s contribution to the 10-year ASCVD log-odds, largest first. ' +
+      'Positive raises the risk, negative lowers it. They sum, with the equation\u2019s constant, to the risk shown above.</div>' +
+      rows +
+      (zero.length ? '<div class="mnote">At the reference value, contributing nothing here: ' + esc(zero.join(", ")) +
+        '. (BMI is in the heart-failure model only, which is why it never moves ASCVD.)</div>' : "") +
+      "</details>";
   }
 
   // ---- guideline recommendations ----
@@ -825,6 +981,29 @@
       '</div><div class="hl">' + esc(rec.headline) + '</div>' +
       (rec.headlineNote ? '<div class="why">' + esc(rec.headlineNote) + '</div>' : '') + '</div>';
 
+    // What the treatment is actually worth for THIS patient, in absolute terms.
+    // The guideline frames this as a clinician-patient discussion, which needs a
+    // number the patient can weigh, not a risk band.
+    var ldlMg = toMgdl(v.ldl_c);
+    var inten = rec.intensity === "modhigh" ? "moderate" : rec.intensity;
+    var ben = (rec.intensity && ldlMg != null) ? APP.absoluteBenefit(primary.r10.ascvd, ldlMg, inten) : null;
+    if (ben) {
+      var benHigh = rec.intensity === "modhigh" ? APP.absoluteBenefit(primary.r10.ascvd, ldlMg, "high") : null;
+      html += '<div class="subhead">If treated \u2014 absolute benefit over 10 years</div>' +
+        '<div class="benefit"><div class="brow"><span>' +
+        esc(inten === "high" ? "High-intensity statin" : "Moderate-intensity statin") +
+        '</span><span>LDL-C ' + Math.round(ldlMg) + " \u2192 ~" + ben.newLdl + " mg/dL</span></div>" +
+        '<div class="brow"><span>10-year ASCVD risk</span><span><b>' + pct(primary.r10.ascvd) +
+        " \u2192 ~" + pct(ben.riskOn) + "</b></span></div>" +
+        '<div class="brow"><span>Absolute reduction</span><span><b>' + pp(ben.arr) + "</b></span></div>" +
+        '<div class="brow"><span>Number needed to treat</span><span><b>~' + ben.nnt + "</b> for 10 years to prevent one event</span></div>" +
+        (benHigh ? '<div class="brow"><span>High-intensity instead</span><span>~' + pct(benHigh.riskOn) +
+          ", NNT ~" + benHigh.nnt + "</span></div>" : "") +
+        '<div class="mnote">Estimated from this patient\u2019s own risk using the Cholesterol Treatment Trialists\u2019 ' +
+        'relationship (each 1 mmol/L, about 39 mg/dL, of LDL-C lowering multiplies major vascular event risk by roughly 0.78), ' +
+        'with typical LDL-C reductions of about 35% for moderate-intensity and 50% for high-intensity therapy. ' +
+        'An approximation for discussion, not a trial result.</div></div>';
+    }
     if (rec.goals) {
       html += '<div class="subhead">Treatment goals — ' + esc(rec.goals.label) + '</div><div class="goalrow">' +
         '<div class="metric"><div class="v">&lt;' + rec.goals.ldl + '</div><div class="l">LDL-C mg/dL' +

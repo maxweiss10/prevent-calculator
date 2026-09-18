@@ -137,8 +137,8 @@
 
   // Parse a pasted block into a partial input object + which fields were found.
   function parseText(text) {
-    var out = {}, found = {}, thresholds = {};
-    if (!text) return { values: out, found: found, thresholds: thresholds, warnings: [] };
+    var out = {}, found = {}, thresholds = {}, dates = {};
+    if (!text) return { values: out, found: found, thresholds: thresholds, dates: dates, warnings: [] };
     text = normalizeText(text);
     var lines = text.split(/\n/);
     for (var i = 0; i < lines.length; i++) {
@@ -185,14 +185,14 @@
       else if (/\b(?:male|man|gentleman)\b/i.test(text)) { out.sex = "male"; found.sex = "scanned"; }
       else { var sm = text.match(/\d\s*(?:y\.?\s*o\.?|y\/o|yo|years?[-\s]*old)\s*([MF])\b/i); if (sm) { out.sex = /f/i.test(sm[1]) ? "female" : "male"; found.sex = "scanned"; } }
     }
-    scanClinical(text, out, found, thresholds); // scrape labs/vitals from unstructured text
+    scanClinical(text, out, found, thresholds, dates); // scrape labs/vitals from unstructured text
     var inferred = inferFlags(text, out, found); // meds/problems/social hx -> Yes/No flags
     var warnings = validateParsed(out, thresholds);
     // Independent second parse + differential cross-check (does NOT change values;
     // only flags fields where a different algorithm disagrees).
     var second = parseIndependent(text);
     var conflicts = crossCheck(out, second);
-    return { values: out, found: found, inferred: inferred, thresholds: thresholds, warnings: warnings, second: second, conflicts: conflicts };
+    return { values: out, found: found, inferred: inferred, thresholds: thresholds, dates: dates, warnings: warnings, second: second, conflicts: conflicts };
   }
 
   function interpret(field, rest) {
@@ -382,9 +382,10 @@
                  /\b(?:was|prior|previously|baseline|formerly)\b[^\d\n]{0,8}$/i.test(text.slice(lnStart, m.index + m[0].length));
       cands.push({ value: n, threshold: result.threshold, date: latestDateIn(text.slice(lnStart, lnEnd)), historical: hist });
     }
-    return pickByDate(cands);
+    var picked = pickByDate(cands);
+    return picked ? { value: picked.value, threshold: picked.threshold, date: picked.date } : null;
   }
-  function scanSbp(text) {
+  function scanSbp(text, dates) {
     // 1) explicit "BP 148/86", "BP 148 over 86", "148/86 mmHg", "SBP 148"
     var pats = [
       /\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3}(?:\.\d+)?)\s*(?:\/|over)\s*\d{2,3}(?:\.\d+)?/i,
@@ -412,7 +413,7 @@
       bps.push({ value: s, date: latestDateIn(text.slice(bs, be)) });
     }
     var pick = pickByDate(bps);
-    if (pick) return pick.value;
+    if (pick) { if (dates && pick.date != null) dates.sbp = pick.date; return pick.value; }
     // 3) last resort: a systolic labelled "BP" with no diastolic beside it, as in
     //    "BP 138, HR 82" where the next number is a different vital. Only when no
     //    proper pair was found anywhere, and only in physiologic range.
@@ -427,7 +428,7 @@
   // " : " Epic prints in @LASTBMI(n)@ ("09/10/26 : 21.35 kg/m²"), same as the
   // @LASTBP(n)@ list. A lab row like "HDL 39 ... 04/09/2026" (value first, date
   // trailing) is NOT matched, so it can't be misread as BMI.
-  function scanBmiList(text) {
+  function scanBmiList(text, dates) {
     var lines = text.split(/\n/);
     for (var i = 0; i < lines.length; i++) {
       if (!/\bbmi\b|body\s*mass/i.test(lines[i])) continue;
@@ -438,7 +439,7 @@
         if (m) { var v = parseFloat(m[4]); if (v >= 12 && v <= 80) rows.push({ value: v, date: dateStamp(m[1], m[2], m[3]) }); }
       }
       var picked = pickByDate(rows);
-      if (picked) return picked.value;
+      if (picked) { if (dates && picked.date != null) dates.bmi = picked.date; return picked.value; }
     }
     return null;
   }
@@ -619,7 +620,7 @@
     return chars.join("");
   }
 
-  function scanClinical(text, out, found, thresholds) {
+  function scanClinical(text, out, found, thresholds, dates) {
     // Every numeric scan below runs on the masked copy. Flag inference still gets
     // the ORIGINAL text, because detectDiabetes/detectSmoking need to see a
     // family-history line in order to recognise and skip it.
@@ -631,14 +632,16 @@
         out[key] = result.value;
         found[key] = "scanned";
         if (result.threshold) thresholds[key] = result.threshold;
+        // The date the winning row carried, so the page can say how old it is.
+        if (dates && result.date != null) dates[key] = result.date;
       }
     }
-    if (found.sbp === undefined) { var s = scanSbp(text); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
+    if (found.sbp === undefined) { var s = scanSbp(text, dates); if (s !== null) { out.sbp = s; found.sbp = "scanned"; } }
     // rejectRange stops "Obesity (BMI 30.0-34.9)" (a diagnosis category) from being
     // read as a measured BMI of 30.0.
     tryField("bmi", "(?:bmi|body\\s*mass\\s*index)", { min: 10, max: 80, allowNextLine: true, rejectRange: true, decimalComma: true });
     // @LASTBMI(n)@ dated reading list (BP-style) when a direct BMI isn't labeled.
-    if (found.bmi === undefined) { var bmiList = scanBmiList(text); if (bmiList !== null) { out.bmi = bmiList; found.bmi = "scanned"; } }
+    if (found.bmi === undefined) { var bmiList = scanBmiList(text, dates); if (bmiList !== null) { out.bmi = bmiList; found.bmi = "scanned"; } }
     // No commaCut: labs are named with commas ("Cholesterol, Total,* 164"), and
     // firstNumIn already takes the first number after the label anyway. "\btc\b"
     // catches the "TC" abbreviation (bounded, so it won't match inside words).
@@ -1034,6 +1037,62 @@
     return warnings;
   }
 
+  // ---- Contradictions between fields -------------------------------------
+  // Two values that cannot both be true. These catch a misparse AND a genuine
+  // charting error, and they are checked on the FINAL form values, so they keep
+  // working after the clinician edits a field by hand.
+  function crossFieldWarnings(v) {
+    var out = [];
+    function mg(x) { return v.chol_unit === "mmol/L" ? x * 38.67 : x; }
+    var tc = v.total_c == null ? null : mg(v.total_c);
+    var hdl = v.hdl_c == null ? null : mg(v.hdl_c);
+    var ldl = v.ldl_c == null ? null : mg(v.ldl_c);
+    if (tc != null && hdl != null && tc <= hdl)
+      out.push("Total cholesterol (" + v.total_c + ") is not above HDL (" + v.hdl_c + ") \u2014 the two values may be swapped.");
+    if (tc != null && ldl != null && ldl > tc)
+      out.push("LDL-C (" + v.ldl_c + ") exceeds total cholesterol (" + v.total_c + ") \u2014 impossible; check both.");
+    if (tc != null && hdl != null && ldl != null && (ldl + hdl) > tc + 5)
+      out.push("LDL-C plus HDL (" + Math.round(ldl + hdl) + ") exceeds total cholesterol (" + Math.round(tc) + ") \u2014 impossible, since total = LDL + HDL + VLDL.");
+    if (v.dm === false && v.hba1c != null && v.hba1c >= 6.5)
+      out.push("Diabetes is marked No but the HbA1c of " + v.hba1c + "% is at or above the 6.5% diagnostic threshold \u2014 confirm which is right, as diabetes moves both the risk and the guideline pathway.");
+    if (v.dm === true && v.hba1c != null && v.hba1c < 5.7)
+      out.push("Diabetes is marked Yes with an HbA1c of " + v.hba1c + "% \u2014 consistent with treated diabetes, but worth confirming.");
+    if (v.statin === true && ldl != null && ldl >= 190)
+      out.push("On a statin with an LDL-C of " + v.ldl_c + " \u2014 check adherence, the dose, or whether the LDL predates treatment.");
+    if (v.statin === false && v.ldl_c != null && ldl < 40)
+      out.push("LDL-C of " + v.ldl_c + " with no lipid-lowering therapy is unusual \u2014 verify the value.");
+    if (v.egfr != null && v.egfr < 30 && v.age != null && v.age < 40)
+      out.push("An eGFR of " + v.egfr + " at age " + v.age + " is unusual \u2014 verify it came from this patient.");
+    return out;
+  }
+
+  // ---- Absolute benefit of lipid lowering --------------------------------
+  // The guideline frames treatment as a clinician-patient discussion, which needs
+  // an absolute number, not a band. Uses the Cholesterol Treatment Trialists'
+  // relationship: each 1 mmol/L (38.67 mg/dL) reduction in LDL-C multiplies major
+  // vascular event risk by about 0.78. Applied to the patient's own 10-year ASCVD
+  // risk, so it scales with their baseline rather than quoting a trial average.
+  var CTT_RR_PER_MMOL = 0.78;
+  var INTENSITY_LDL_DROP = { moderate: 0.35, high: 0.50 };   // typical proportional LDL-C reduction
+  function absoluteBenefit(risk10, ldlMgdl, intensity) {
+    if (risk10 == null || ldlMgdl == null || !(ldlMgdl > 0)) return null;
+    var frac = INTENSITY_LDL_DROP[intensity];
+    if (!frac) return null;
+    var dropMmol = (ldlMgdl * frac) / 38.67;
+    var rrr = 1 - Math.pow(CTT_RR_PER_MMOL, dropMmol);
+    var arr = risk10 * rrr;
+    if (!(arr > 0)) return null;
+    return {
+      intensity: intensity,
+      ldlDrop: Math.round(ldlMgdl * frac),
+      newLdl: Math.round(ldlMgdl * (1 - frac)),
+      rrr: rrr,
+      riskOn: risk10 - arr,
+      arr: arr,
+      nnt: Math.max(1, Math.round(1 / arr)),
+    };
+  }
+
   // ---- Independent second parser (differential cross-check) --------------
   // A DELIBERATELY DIFFERENT algorithm from the primary parser. The primary is
   // label-anchored ("find eGFR, read the next number"). This one is a
@@ -1376,7 +1435,7 @@
   }
 
   // expose for browser + node tests
-  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, outOfValidatedRange, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, disqualifiedSpans, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
+  var api = { parseText, selectModel, computeAll, RANGES, firstNumber, parseBool, parseSex, ckdEpi2021, scanField, scanSbp, detectDrug, outOfValidatedRange, crossFieldWarnings, absoluteBenefit, detectDiabetes, diabetesSignal, detectSmoking, smokingStatusLine, isFamilyContext, disqualifiedSpans, extractNum, sectionAbove, normalizeText, parseIndependent, crossCheck, annotateSource, harvestNumbers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.PREVENT_APP = api;
 })();
