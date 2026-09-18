@@ -1053,10 +1053,25 @@
     var out = [], re = /([<>≤≥]?\s*)(\d[\d,]*(?:\.\d+)?)/g, m;
     while ((m = re.exec(masked)) !== null) {
       var numStart = m.index + m[1].length, numEnd = numStart + m[2].length;
-      var lineStart = text.lastIndexOf("\n", m.index - 1) + 1;
+      // Anchor the context on the NUMBER, not on the start of its leading
+      // whitespace: \s matches newlines, so a number at the start of a row was
+      // inheriting the previous line as its context. That let the "08" of a date
+      // row borrow the "Hemoglobin A1c" header above it and be harvested as an
+      // A1c of 8, which then disagreed with the correct primary value.
+      var lineStart = text.lastIndexOf("\n", numStart - 1) + 1;
+      var samePrefix = text.slice(lineStart, numStart);
+      var ctx = samePrefix;
+      // A number that STARTS its line can still be described by a bare label on the
+      // line above ("Total Cholesterol" / "213"), but only if that line is a label
+      // and not another data row.
+      if (!/[a-z]/i.test(samePrefix) && lineStart > 1) {
+        var prevStart = text.lastIndexOf("\n", lineStart - 2) + 1;
+        var prev = text.slice(prevStart, lineStart - 1);
+        if (prev && !/\d/.test(prev)) ctx = prev + " " + samePrefix;
+      }
       out.push({
         val: parseFloat(m[2].replace(/,/g, "")),                  // strip comma thousands
-        beforeLine: text.slice(lineStart, m.index).toLowerCase(), // SAME-LINE context only
+        beforeLine: ctx.toLowerCase(),                            // this number's own context
         after: text.slice(numEnd, numEnd + 12).toLowerCase(),
         idx: m.index, numStart: numStart, numEnd: numEnd,
       });
