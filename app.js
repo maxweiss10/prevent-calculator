@@ -252,6 +252,9 @@
   // preserves the most-recent-first convention for undated text.
   function pickByDate(cands) {
     if (!cands.length) return null;
+    // A value its own clause calls historical loses to any current one.
+    var current = cands.filter(function (c) { return !c.historical; });
+    if (current.length) cands = current;
     var dated = cands.filter(function (c) { return c.date != null; });
     if (dated.length >= 2) {
       var distinct = {}; dated.forEach(function (c) { distinct[c.date] = 1; });
@@ -311,12 +314,16 @@
       // (an obesity/category descriptor, not a measured value).
       if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
+      // "4-variable", "25-hydroxy", "12-lead": a number bonded to a word by a hyphen
+      // is part of that word. Without this "eGFR MDRD 4-variable 72" reads as 4.
+      after = after.replace(/\b\d+(?=-[A-Za-z])/g, " ");
       // European decimal comma for fields that are written that way abroad
       // ("BMI 31,4 kg/m2"); without this the value truncates to 31.
       if (opts.decimalComma) after = after.replace(/(\d),(\d{1,2})(?!\d)/g, "$1.$2");
-      // "increased from 28.1 to 31.4" — the current value is the one after "to".
-      var fromTo = after.match(/^[^\d\n]{0,24}from\s+[\d.,]+\s+to\s+([\d.,]+)/i);
-      if (fromTo) after = " " + fromTo[1];
+      // "increased from 28.1 to 31.4", "was 33, now 27.4" — in a then/now pair the
+      // CURRENT value is the second one; taking the first reports a stale number.
+      var thenNow = after.match(/^[^\d\n]{0,16}\b(?:from|was|previously|prior|baseline)\b[^\d\n]{0,8}[\d.,]+\s*[,;]?\s*(?:to|now|currently|today|improved\s+to|down\s+to|up\s+to)\b[^\d\n]{0,8}([\d.,]+)/i);
+      if (thenNow) after = " " + thenNow[1];
       var result = extractNum(after, opts.thousands);
       var unitScope = after; // where a required unit (opts.requireUnit) must appear
       // vertical-layout fallback: label on its own line, value on the NEXT line.
@@ -346,7 +353,12 @@
       var n = result.value;
       if ((opts.min != null && n < opts.min) || (opts.max != null && n > opts.max)) continue;
       var lnEnd = text.indexOf("\n", m.index); if (lnEnd < 0) lnEnd = text.length;
-      cands.push({ value: n, threshold: result.threshold, date: latestDateIn(text.slice(lnStart, lnEnd)) });
+      // "LDL 160 three months ago; LDL today 98" — the clause around a value can say
+      // outright that it is old. Such a candidate yields to a current one.
+      var clause = text.slice(m.index, lnEnd).split(/[;.]/)[0];
+      var hist = /\bago\b|\bin\s+(?:19|20)\d\d\b|\bback\s+then\b|\bat\s+baseline\b/i.test(clause) ||
+                 /\b(?:was|prior|previously|baseline|formerly)\b[^\d\n]{0,8}$/i.test(text.slice(lnStart, m.index + m[0].length));
+      cands.push({ value: n, threshold: result.threshold, date: latestDateIn(text.slice(lnStart, lnEnd)), historical: hist });
     }
     return pickByDate(cands);
   }
@@ -519,7 +531,9 @@
         // standalone header. Indented rows and lines led by a relative's name
         // still belong to the relatives.
         if (fam && /^\S[^:\n]{0,30}:/.test(ln) && !RELATIVE_RE.test(ln.split(":")[0])) fam = false;
-        if (fam) {
+        if (OTHER_PERSON_RE.test(ln.slice(0, d))) {
+          out.push({ start: pos, end: pos + ln.length, reason: "another person's value (donor or fetal)" });
+        } else if (fam) {
           out.push({ start: pos, end: pos + ln.length, reason: "a relative's value (family history)" });
         } else {
           // From the target word to end of line, not the whole line: a numbered A/P
@@ -660,6 +674,10 @@
   var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine|norvasc|cozaar|hyzaar|diovan|benicar|micardis|avapro|atacand|teveten|edarbi|lopressor|toprol|tenormin|coreg|bystolic|corgard|sectral|cardizem|cartia|tiazac|calan|verelan|isoptin|covera|adalat|procardia|sular|plendil|cardene|lasix|microzide|aldactone|inspra|bumex|demadex|edecrin|zaroxolyn|lozol|catapres|lotrel|zestril|prinivil|vasotec|altace|accupril|monopril|mavik|aceon|univasc|lotensin|capoten|cardura|hytrin|minipress|aldomet|tekturna|apresoline|loniten|dyazide|maxzide|tenoretic|exforge|tribenzor|azor|twynsta|amturnide)\b/i;
   // Lines that mean a drug is NOT actually being taken.
   var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|\bhold(?:ing|s)?\b|\bheld\b|not\s+tak(?:ing|en)|hasn'?t\s+taken|ran\s+out|declined/i;
+  // A drug the plan INTENDS, offers, or has already failed is not current therapy.
+  // Tense matters: "start atorvastatin" is a plan, "started atorvastatin in 2019"
+  // is a current medication, so "started" must not match here.
+  var DRUG_FUTURE_LINE = /\b(?:will\s+start|plan(?:ning)?\s+to\s+start|start(?!ed)\w*|initiat(?:e|ing)\b|begin(?:ning)?\b|recommend\w*|consider\w*|candidate\s+for|eligible\s+for|offer(?:ed|ing)?\b|discuss(?:ed|ing)?\b|refus\w*|fail(?:ed|ure)?\b|would\s+benefit)\b/i;
   // Narrower set for the NEXT-line check: only true discontinuation signals, NOT
   // "allerg"/"adverse" (those would false-trigger on an "Allergies:" header that
   // simply follows the last active med).
@@ -699,6 +717,7 @@
       // line is judged — and the drug matched — on what sits outside the parens.
       var outside = line.replace(/\([^)]*\)/g, " ");
       if (DRUG_SKIP_LINE.test(outside)) continue;      // the line itself is inactive
+      if (DRUG_FUTURE_LINE.test(outside)) continue;    // planned / offered / failed, not taken
       // Stop word ONLY inside the parens => it describes a prior drug, so match on
       // what's outside. Otherwise the parens may hold the active drug, so keep them.
       var m = (DRUG_SKIP_LINE.test(line) ? outside : line).match(re);
@@ -722,6 +741,9 @@
   // diagnosis detector below is guarded by these.
   var RELATIVE_RE = /\b(?:mother|father|mom|dad|parents?|sisters?|brothers?|siblings?|sons?|daughters?|aunts?|uncles?|cousins?|grand(?:mother|father|parents?|ma|pa)|maternal|paternal|spouse|wife|husband|partner)\b/i;
   var FAMILY_CUE_RE = /\b(?:family\s*(?:history|hx|h\/o)|fhx|famhx|fam\s*hx)\b/i;
+  // Not the patient either, and not family: a transplant donor's labs or fetal
+  // measurements sit in the chart beside the patient's own.
+  var OTHER_PERSON_RE = /\b(?:donor|donor's|fetal|foetal|fetus|baby|baby's|newborn|neonate|neonatal|infant)\b/i;
 
   // True when the mention at `idx` describes someone OTHER than the patient:
   // it sits in a family-history section, under a per-relative sub-header
@@ -988,6 +1010,12 @@
     var values = res.values || {}, found = res.found || {};
     var nums = harvestNumbers(text);
     var consumed = {};
+    var disq = disqualifiedSpans(text);
+    function disqReason(a, b) {
+      for (var i = 0; i < disq.length; i++) if (a >= disq[i].start && b <= disq[i].end) return disq[i].reason;
+      return null;
+    }
+    function excluded(n) { return disqReason(n.numStart, n.numEnd) != null; }
     var LABELRE = {
       age: /age/, sbp: /\bbp\b|pressure|systolic/, total_c: /chol|\btc\b/, hdl_c: /hdl|high[\s-]?density/,
       bmi: /bmi|body\s*mass/, egfr: /gfr/, hba1c: /a1c|glyc/, uacr: /acr|album|micro/,
@@ -1013,17 +1041,17 @@
       if (f === "egfr" && found.egfr === "computed_from_cr") return;
       var tol = TOL[f] || 0.5, best = -1;
       for (var i = 0; i < nums.length; i++) {
-        if (consumed[i] == null && Math.abs(nums[i].val - values[f]) <= tol && LABELRE[f].test(nums[i].beforeLine)) { best = i; break; }
+        if (consumed[i] == null && !excluded(nums[i]) && Math.abs(nums[i].val - values[f]) <= tol && LABELRE[f].test(nums[i].beforeLine)) { best = i; break; }
       }
       if (best < 0) for (var j = 0; j < nums.length; j++) {
-        if (consumed[j] == null && Math.abs(nums[j].val - values[f]) <= tol) { best = j; break; }
+        if (consumed[j] == null && !excluded(nums[j]) && Math.abs(nums[j].val - values[f]) <= tol) { best = j; break; }
       }
       if (best >= 0) consumed[best] = f;
     });
     // eGFR computed from creatinine: the consumed number is the creatinine.
     if (found.egfr === "computed_from_cr") {
       for (var i = 0; i < nums.length; i++) {
-        if (consumed[i] != null) continue;
+        if (consumed[i] != null || excluded(nums[i])) continue;
         var bl = nums[i].beforeLine;
         if (/alb|ratio|urine|clearance|kinase/.test(bl)) continue;
         if (/creat|scr|(?:^|[^a-z\/])cr\b/.test(bl)) { consumed[i] = "egfr_cr"; break; }
@@ -1044,11 +1072,6 @@
       { f: "uacr", re: /uacr|\bacr\b|microalb|album\w*\s*\/?\s*creat/, excl: /never^/ },
       { f: "sbp", re: /\bbp\b|blood\s*pressure|systolic/, excl: /never^/ },
     ];
-    var disq = disqualifiedSpans(text);
-    function disqReason(a, b) {
-      for (var i = 0; i < disq.length; i++) if (a >= disq[i].start && b <= disq[i].end) return disq[i].reason;
-      return null;
-    }
     var spans = nums.map(function (n, i) {
       var status = consumed[i] != null ? "consumed" : "neutral", field = consumed[i] || null;
       // Deliberately excluded numbers are shown as excluded, with the reason. They

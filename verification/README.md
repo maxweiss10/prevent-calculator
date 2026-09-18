@@ -80,6 +80,27 @@ rather than a bespoke script whenever a new paste layout turns up:
   sorted oldest-first, the boundary between a treatment target and the reading
   that follows it on the same line, two records pasted together, and dual-unit
   lab reports.
+- `cases-tense-and-owner.json` — tense and ownership: a drug the plan intends,
+  offers or has already failed versus one the patient takes; a then/now pair; a
+  clause that calls its own value old; and specimens belonging to a transplant
+  donor or a fetus.
+
+Most bugs found so far fall into three classes, which is the most productive
+place to aim a new case:
+
+1. **Whose value is it?** Family history, treatment targets, resolved problems,
+   a spouse's smoking, a donor's creatinine, a fetus's measurements. The number
+   is real but describes someone or something other than this patient now.
+2. **Which number is it?** A reference-range bound, a date component, a dose, a
+   hyphenated word ("4-variable"), the first two digits of a longer number, or a
+   neighbouring analyte's row. The parser anchors on a label and then grabs the
+   wrong nearby number.
+3. **Is the polarity right?** "No changes to" versus "no", planned versus
+   current, "at goal" versus a goal, failed versus taking, never versus former.
+
+A fourth rule cuts across all of them: whatever the primary parser learns,
+`parseIndependent` must learn too, or the cross-check disagrees with a correct
+value and trains the reader to ignore it.
 
 The governing rule for every expectation: **a wrong value is far worse than a
 blank.** When the text is genuinely ambiguous — a resolved diagnosis, a held
