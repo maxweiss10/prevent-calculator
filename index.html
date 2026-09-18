@@ -384,10 +384,10 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=33"></script>
-<script src="prevent.js?v=33"></script>
-<script src="app.js?v=33"></script>
-<script src="guideline.js?v=33"></script>
+<script src="coeffs.js?v=34"></script>
+<script src="prevent.js?v=34"></script>
+<script src="app.js?v=34"></script>
+<script src="guideline.js?v=34"></script>
 <script>
 (function () {
   "use strict";
@@ -637,6 +637,12 @@
         var d = document.getElementById("dot_" + key); if (d) d.classList.remove("conflict");
         e.target.classList.remove("conflict");
       }
+      // The value in the box is no longer the one that was parsed, so its date and
+      // its "reported only as >60" note describe something that is no longer there.
+      if (key) {
+        if (state.dates) delete state.dates[key];
+        if (state.thresholds) delete state.thresholds[key];
+      }
     }
     setUnitLabels(); markValidity(); syncConditional();
     state.values = collect();
@@ -656,6 +662,10 @@
     var then = new Date(y, m - 1, d), now = new Date();
     if (isNaN(then.getTime()) || then > now) return null;
     return (now.getFullYear() - y) * 12 + (now.getMonth() - (m - 1)) - (now.getDate() < d ? 1 : 0);
+  }
+  function isFuture(stamp) {
+    var y = Math.floor(stamp / 10000), m = Math.floor(stamp / 100) % 100, d = stamp % 100;
+    return new Date(y, m - 1, d) > new Date();
   }
   function stampLabel(stamp) {
     var m = String(Math.floor(stamp / 100) % 100).padStart(2, "0");
@@ -793,10 +803,13 @@
                   hba1c: "HbA1c", sbp: "Systolic BP", bmi: "BMI" };
       var stale = [];
       Object.keys(FLD).forEach(function (k) {
-        var mo = monthsOld(state.dates[k]);
-        // only complain if the value the form is USING is the one we dated
-        if (mo != null && mo >= 12 && v[k] != null)
-          stale.push(FLD[k] + " is from " + stampLabel(state.dates[k]) + " (" + agePhrase(mo) + ")");
+        if (v[k] == null) return;              // only judge values the form is using
+        var stamp = state.dates[k], mo = monthsOld(stamp);
+        if (mo === null && stamp != null && isFuture(stamp))
+          probs.push("<b>Check:</b> " + FLD[k] + " is dated " + stampLabel(stamp) +
+            ", which is in the future \u2014 the date or the value has been misread.");
+        else if (mo != null && mo >= 12)
+          stale.push(FLD[k] + " is from " + stampLabel(stamp) + " (" + agePhrase(mo) + ")");
       });
       if (stale.length)
         probs.push("<b>Dated values:</b> " + stale.join("; ") +
@@ -985,13 +998,38 @@
     // The guideline frames this as a clinician-patient discussion, which needs a
     // number the patient can weigh, not a risk band.
     var ldlMg = toMgdl(v.ldl_c);
-    var inten = rec.intensity === "modhigh" ? "moderate" : rec.intensity;
-    var ben = (rec.intensity && ldlMg != null) ? APP.absoluteBenefit(primary.r10.ascvd, ldlMg, inten) : null;
-    if (ben) {
-      var benHigh = rec.intensity === "modhigh" ? APP.absoluteBenefit(primary.r10.ascvd, ldlMg, "high") : null;
-      html += '<div class="subhead">If treated \u2014 absolute benefit over 10 years</div>' +
-        '<div class="benefit"><div class="brow"><span>' +
-        esc(inten === "high" ? "High-intensity statin" : "Moderate-intensity statin") +
+    var onStatin = v.statin === true;
+    var goalLdl = rec.goals ? rec.goals.ldl : null;
+    var ben = null, benHigh = null, benTitle = "", benWhat = "", atGoal = false;
+    if (ldlMg != null && rec.intensity) {
+      if (!onStatin) {
+        // Not yet treated: the modelled drop is what starting therapy achieves.
+        var inten = rec.intensity === "modhigh" ? "moderate" : rec.intensity;
+        ben = APP.absoluteBenefit(primary.r10.ascvd, ldlMg, inten);
+        if (rec.intensity === "modhigh") benHigh = APP.absoluteBenefit(primary.r10.ascvd, ldlMg, "high");
+        benTitle = "If treated \u2014 absolute benefit over 10 years";
+        benWhat = inten === "high" ? "High-intensity statin" : "Moderate-intensity statin";
+      } else if (goalLdl != null) {
+        // ALREADY on a statin: this LDL-C is a treated value, so the benefit it
+        // represents is already banked. The open question is further lowering, and
+        // the only drop we can honestly model is the remaining gap to goal.
+        if (ldlMg <= goalLdl) { atGoal = true; }
+        else {
+          var frac = (ldlMg - goalLdl) / ldlMg;
+          ben = APP.absoluteBenefit(primary.r10.ascvd, ldlMg, "custom", frac);
+          benTitle = "If lowered further to goal \u2014 absolute benefit over 10 years";
+          benWhat = "Intensify to reach LDL-C <" + goalLdl;
+        }
+      }
+    }
+    if (atGoal) {
+      html += '<div class="subhead">Absolute benefit</div><div class="benefit"><div class="mnote">' +
+        'LDL-C of ' + Math.round(ldlMg) + ' is already at or below the goal of ' + goalLdl +
+        ' on current therapy, so no further lowering is modelled. The benefit of the statin this patient ' +
+        'is already taking is reflected in this LDL-C, not additional to it.</div></div>';
+    } else if (ben) {
+      html += '<div class="subhead">' + benTitle + '</div>' +
+        '<div class="benefit"><div class="brow"><span>' + esc(benWhat) +
         '</span><span>LDL-C ' + Math.round(ldlMg) + " \u2192 ~" + ben.newLdl + " mg/dL</span></div>" +
         '<div class="brow"><span>10-year ASCVD risk</span><span><b>' + pct(primary.r10.ascvd) +
         " \u2192 ~" + pct(ben.riskOn) + "</b></span></div>" +
@@ -999,10 +1037,13 @@
         '<div class="brow"><span>Number needed to treat</span><span><b>~' + ben.nnt + "</b> for 10 years to prevent one event</span></div>" +
         (benHigh ? '<div class="brow"><span>High-intensity instead</span><span>~' + pct(benHigh.riskOn) +
           ", NNT ~" + benHigh.nnt + "</span></div>" : "") +
-        '<div class="mnote">Estimated from this patient\u2019s own risk using the Cholesterol Treatment Trialists\u2019 ' +
-        'relationship (each 1 mmol/L, about 39 mg/dL, of LDL-C lowering multiplies major vascular event risk by roughly 0.78), ' +
-        'with typical LDL-C reductions of about 35% for moderate-intensity and 50% for high-intensity therapy. ' +
-        'An approximation for discussion, not a trial result.</div></div>';
+        '<div class="mnote">' +
+        (onStatin ? "This patient is already on a statin, so the current LDL-C is a treated value and the benefit " +
+          "behind it is already banked. What is modelled here is only the FURTHER lowering needed to reach goal. " : "") +
+        'Estimated from this patient\u2019s own risk using the Cholesterol Treatment Trialists\u2019 ' +
+        'relationship (each 1 mmol/L, about 39 mg/dL, of LDL-C lowering multiplies major vascular event risk by roughly 0.78)' +
+        (onStatin ? "" : ", with typical LDL-C reductions of about 35% for moderate-intensity and 50% for high-intensity therapy") +
+        '. An approximation for discussion, not a trial result.</div></div>';
     }
     if (rec.goals) {
       html += '<div class="subhead">Treatment goals — ' + esc(rec.goals.label) + '</div><div class="goalrow">' +

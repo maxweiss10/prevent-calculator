@@ -689,6 +689,7 @@
       // "\bs?cr\b" also matches the "SCr" (serum creatinine) shorthand.
       var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b|\\bs?cr\\b)(?!\\s*(?:cl\\b|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio", "micro"], rejectLine: /album|ratio|\buacr\b|urine|clearance|kinase|\baki\b|acute\s+kidney|baseline|resume\s+when|\bgoal\b|\btarget\b/i, noSlashBefore: true, min: 0.2, max: 15 });
       if (crResult !== null) {
+        if (dates && crResult.date != null) dates.egfr = crResult.date;
         // mg/L (continental reporting) is one tenth of mg/dL. Read as mg/dL, a
         // perfectly normal 9.8 mg/L became an eGFR of 6 - dialysis territory.
         var crVal2 = crResult.value;
@@ -1074,10 +1075,13 @@
   // risk, so it scales with their baseline rather than quoting a trial average.
   var CTT_RR_PER_MMOL = 0.78;
   var INTENSITY_LDL_DROP = { moderate: 0.35, high: 0.50 };   // typical proportional LDL-C reduction
-  function absoluteBenefit(risk10, ldlMgdl, intensity) {
+  // `intensity` is "moderate" | "high", or "custom" with an explicit proportional
+  // drop — used when the patient is ALREADY treated and the only honest quantity
+  // is the remaining gap to goal.
+  function absoluteBenefit(risk10, ldlMgdl, intensity, customFrac) {
     if (risk10 == null || ldlMgdl == null || !(ldlMgdl > 0)) return null;
-    var frac = INTENSITY_LDL_DROP[intensity];
-    if (!frac) return null;
+    var frac = intensity === "custom" ? customFrac : INTENSITY_LDL_DROP[intensity];
+    if (!(frac > 0) || frac >= 1) return null;
     var dropMmol = (ldlMgdl * frac) / 38.67;
     var rrr = 1 - Math.pow(CTT_RR_PER_MMOL, dropMmol);
     var arr = risk10 * rrr;

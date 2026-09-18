@@ -101,6 +101,28 @@ check("no intensity, no estimate", APP.absoluteBenefit(0.136, 130, null) === nul
 // event. Far outside that and something is wrong with the arithmetic.
 check("NNT lands in a clinically plausible range", b.nnt >= 20 && b.nnt <= 45, "NNT " + b.nnt);
 
+console.log("\nbenefit for a patient who is ALREADY on a statin");
+// Their current LDL-C is a treated value, so the benefit behind it is already
+// banked. Quoting the benefit of "starting a statin" there counts it twice.
+var treated = APP.absoluteBenefit(0.038, 108, "custom", (108 - 100) / 108);
+check("only the remaining gap to goal is modelled", treated.newLdl === 100, JSON.stringify(treated));
+check("a small further drop yields a correspondingly small benefit", treated.nnt > 200, "NNT " + treated.nnt);
+var untreated = APP.absoluteBenefit(0.038, 108, "moderate");
+check("and it is far smaller than pretending they were untreated",
+  treated.arr < untreated.arr / 2, "treated ARR " + treated.arr + " vs untreated " + untreated.arr);
+check("a zero-size custom drop yields nothing", APP.absoluteBenefit(0.1, 130, "custom", 0) === null);
+check("a nonsensical custom drop yields nothing", APP.absoluteBenefit(0.1, 130, "custom", 1.2) === null);
+check("a negative custom drop yields nothing", APP.absoluteBenefit(0.1, 130, "custom", -0.2) === null);
+
+console.log("\na creatinine-derived eGFR carries the creatinine's date");
+// Otherwise a three-year-old creatinine drives the eGFR with nothing to flag it.
+var derived = APP.parseText("Age: 58\nSex: M\nSerum Creatinine: 1.3 mg/dL at 03/14/2023\nTotal chol 197\nHDL 44");
+check("derived eGFR inherits the creatinine date",
+  derived.found.egfr === "computed_from_cr" && derived.dates.egfr === 20230314, JSON.stringify(derived.dates));
+var stated = APP.parseText("Age: 58\nSex: M\neGFR 72 at 08/13/2026\nCr 1.1 at 01/01/2020");
+check("a stated eGFR reports its own date, not the creatinine's",
+  stated.values.egfr === 72 && stated.dates.egfr === 20260813, JSON.stringify(stated.dates));
+
 console.log("\nthe guideline reports a machine-readable intensity");
 function inten(ctx) { return GUIDE.recommend(ctx).intensity; }
 check("high risk → high", inten({ age: 58, sex: "male", dm: false, smoking: false, statin: false, ascvd10: 0.136, ldl: 130, tc: 200, hdl: 45 }) === "high");
