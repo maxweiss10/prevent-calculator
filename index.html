@@ -384,10 +384,10 @@
 <!-- Cache-busting: bump ?v= on every change to coeffs/prevent/app so browsers
      never run a stale (possibly buggy) copy. The HTML itself is revalidated by
      GitHub Pages via ETag, so a new ?v= always propagates on the next load. -->
-<script src="coeffs.js?v=34"></script>
-<script src="prevent.js?v=34"></script>
-<script src="app.js?v=34"></script>
-<script src="guideline.js?v=34"></script>
+<script src="coeffs.js?v=35"></script>
+<script src="prevent.js?v=35"></script>
+<script src="app.js?v=35"></script>
+<script src="guideline.js?v=35"></script>
 <script>
 (function () {
   "use strict";
@@ -800,7 +800,7 @@
     // old. The risk then rests on numbers that no longer describe the patient.
     if (state.dates) {
       var FLD = { total_c: "Total cholesterol", hdl_c: "HDL", ldl_c: "LDL-C", egfr: "eGFR",
-                  hba1c: "HbA1c", sbp: "Systolic BP", bmi: "BMI" };
+                  hba1c: "HbA1c", uacr: "UACR", sbp: "Systolic BP", bmi: "BMI" };
       var stale = [];
       Object.keys(FLD).forEach(function (k) {
         if (v[k] == null) return;              // only judge values the form is using
@@ -898,8 +898,13 @@
         var op = state.thresholds[k];
         if (v[k] == null) return;
         var alt = op === ">" || op === "\u2265" ? v[k] * 1.5 : v[k] * 0.5;
-        var rng = k === "egfr" ? APP.RANGES.egfr : null;
+        // Keep the what-if inside the equations' validated range for THAT field,
+        // whatever it is. Otherwise a threshold like ">320" would propose 480 and
+        // the panel would claim a management change from an extrapolated number.
+        var fld = ALL().filter(function (f) { return f.key === k; })[0];
+        var rng = fld ? (fld.unit === "chol" ? cholRange(k) : fld.range) : null;
         if (rng) alt = Math.min(Math.max(alt, rng[0]), rng[1]);
+        if (alt === v[k]) return;   // clamped back onto the reported value: nothing to ask
         consider(k, Math.round(alt), "reported only as \u201c" + op + v[k] + "\u201d");
       });
       // a field the two parsers disagreed on

@@ -123,6 +123,32 @@ var stated = APP.parseText("Age: 58\nSex: M\neGFR 72 at 08/13/2026\nCr 1.1 at 01
 check("a stated eGFR reports its own date, not the creatinine's",
   stated.values.egfr === 72 && stated.dates.egfr === 20260813, JSON.stringify(stated.dates));
 
+console.log("\nthe what-if alternatives stay inside the validated range");
+// The page proposes a plausible real value for a thresholded result. That
+// proposal must stay inside the range the equations were validated on, or the
+// panel would claim a management change from an extrapolated number.
+function clampAlt(key, reported, op) {
+  var raw = (op === ">" ) ? reported * 1.5 : reported * 0.5;
+  var r = key === "total_c" ? APP.RANGES.total_c_mgdl : key === "hdl_c" ? APP.RANGES.hdl_c_mgdl : APP.RANGES[key];
+  return Math.min(Math.max(raw, r[0]), r[1]);
+}
+check("eGFR >60 proposes a usable 90", clampAlt("egfr", 60, ">") === 90);
+check("total cholesterol >320 clamps back to its own limit", clampAlt("total_c", 320, ">") === 320,
+  "a proposal equal to the reported value means no what-if is offered");
+check("HDL <20 clamps back to its own limit", clampAlt("hdl_c", 20, "<") === 20);
+check("SBP >180 clamps back to its own limit", clampAlt("sbp", 180, ">") === 180);
+check("every clamped alternative is itself in range",
+  [["egfr", 60, ">"], ["total_c", 320, ">"], ["hdl_c", 20, "<"], ["sbp", 180, ">"]].every(function (x) {
+    var base = { age: 58, sex: "male", sbp: 130, total_c: 200, hdl_c: 45, bmi: 28, egfr: 75, chol_unit: "mg/dL" };
+    base[x[0]] = clampAlt(x[0], x[1], x[2]);
+    return APP.outOfValidatedRange(base).length === 0;
+  }));
+
+console.log("\nUACR is dated like every other lab");
+var uacrRes = APP.parseText("Age: 58\nSex: M\nUACR 45 mg/g  02/10/2023\nTotal chol 197\nHDL 44");
+check("UACR value and date are both reported",
+  uacrRes.values.uacr === 45 && uacrRes.dates.uacr === 20230210, JSON.stringify(uacrRes.dates));
+
 console.log("\nthe guideline reports a machine-readable intensity");
 function inten(ctx) { return GUIDE.recommend(ctx).intensity; }
 check("high risk → high", inten({ age: 58, sex: "male", dm: false, smoking: false, statin: false, ascvd10: 0.136, ldl: 130, tc: 200, hdl: 45 }) === "high");
