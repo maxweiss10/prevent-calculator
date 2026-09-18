@@ -127,7 +127,12 @@
       .replace(/[‘’]/g, "'")
       .replace(/[“”]/g, '"')
       .replace(/\r/g, " ")
-      .replace(/\t/g, " ");
+      .replace(/\t/g, " ")
+      // Fullwidth forms appear in text copied through some viewers. Each maps to
+      // exactly one ASCII character, so offsets are preserved.
+      .replace(/[\uFF10-\uFF19]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/\uFF0E/g, ".").replace(/\uFF1A/g, ":").replace(/\uFF0F/g, "/")
+      .replace(/\uFF0D/g, "-").replace(/\uFF1C/g, "<").replace(/\uFF1E/g, ">");
   }
 
   // Parse a pasted block into a partial input object + which fields were found.
@@ -301,6 +306,10 @@
       var rawAfter = text.slice(m.index + m[0].length);
       if (opts.noSlashAfter && /^\s*\//.test(rawAfter)) continue;
       var after = lineAfter(text, m.index + m[0].length);
+      // A trailing date column is never the result. Masked first, so the range and
+      // reference-limit strips below cannot mistake a date for the value that
+      // follows a limit ("eGFR >60   08/13/2026" was returning 8).
+      after = after.replace(/\b\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{2,4}\b/g, " ");
       // Some lab reports put the Ref Range column BEFORE the Value column
       // ("Cholesterol   100-199   197"). Step over a leading range when a real
       // number follows it, otherwise the range's low bound becomes the result.
@@ -308,12 +317,19 @@
         // The whitespace before the next number is REQUIRED: without it the
         // pattern could split "60-89" into "60-8" and a leftover "9".
         var rng = after.match(/^(\s*[\d.,]+\s*[-–]\s*[\d.,]+[^\d\n]{0,12}\s)(?=[<>≤≥]?\s*\d)/);
+        // Same for a one-sided reference limit ("HDL  >39  44"): a threshold with a
+        // plain number after it is the RANGE column, not the result. A threshold
+        // standing alone ("eGFR >60") is still the reported value.
+        if (!rng) rng = after.match(/^(\s*[<>≤≥]\s*[\d.,]+[^\d\n]{0,12}\s)(?=\d)/);
         if (rng) after = after.slice(rng[1].length);
       }
       // reject a value that is the lower bound of a range like "BMI 30.0-34.9"
       // (an obesity/category descriptor, not a measured value).
       if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
+      // A year cannot be a value for these fields (all capped well under 1000), so
+      // strip it rather than let "eGFR CKD-EPI 2021 68" fail on 2021.
+      if (opts.max != null && opts.max < 1000) after = after.replace(/\b(?:19|20)\d{2}\b(?!\s*[\/-]\s*\d)/g, " ");
       // Strip unit expressions that contain digits of their own, so an empty result
       // ("eGFR: mL/min/1.73m2") cannot return 1.73 as the value.
       after = after.replace(/m[lL]\s*\/\s*min(?:\s*\/\s*1\.73\s*m\s*\^?\s*[2²]?)?|1\.73\s*m\s*\^?\s*[2²]|kg\s*\/\s*m\s*\^?\s*[2²]/gi, " ");
@@ -396,7 +412,13 @@
       bps.push({ value: s, date: latestDateIn(text.slice(bs, be)) });
     }
     var pick = pickByDate(bps);
-    return pick ? pick.value : null;
+    if (pick) return pick.value;
+    // 3) last resort: a systolic labelled "BP" with no diastolic beside it, as in
+    //    "BP 138, HR 82" where the next number is a different vital. Only when no
+    //    proper pair was found anywhere, and only in physiologic range.
+    var lone = text.match(/\b(?:bp|blood\s*pressure)\b[^\d\n]{0,10}(\d{2,3}(?:\.\d+)?)(?!\s*[\/,]\s*\d)/i);
+    if (lone) { var lv = parseFloat(lone[1]); if (lv >= 70 && lv <= 260) return lv; }
+    return null;
   }
   // BMI from an @LASTBMI(n)@ dated reading list ("BMI Readings from Last 3
   // Encounters:\n04/13/26<TAB>28.4") — the BMI analogue of the @LASTBP@ list.
@@ -465,6 +487,13 @@
     return null;
   }
   function scanA1c(text) {
+    // IFCC units (mmol/mol) are outside the 3-20% window and were simply missed.
+    // NGSP% = IFCC/10.929 + 2.15 (the standard master-equation conversion).
+    var ifcc = text.match(/\b(\d{2,3}(?:\.\d+)?)\s*mmol\s*\/\s*mol\b/i);
+    if (ifcc && !/\d\s*%/.test(text)) {
+      var iv = parseFloat(ifcc[1]);
+      if (iv >= 20 && iv <= 200) return Math.round((iv / 10.929 + 2.15) * 10) / 10;
+    }
     var lines = text.split(/\n/);
     for (var i = 0; i < lines.length; i++) {
       var am = A1C_ANCHOR.exec(lines[i]);
@@ -632,7 +661,13 @@
     tryField("total_c", TC_PAT, ranged(TC_OPTS, 40, 500));
     var mmol = false;
     if (found.total_c === undefined) {
-      tryField("total_c", TC_PAT, ranged(TC_OPTS, 1.5, 15, { requireUnit: /mmol/i }));
+      // "mM" is written for mmol/L; the mmol alternative is case-insensitive while
+      // mM is matched exactly, so "mmHg" can never satisfy it.
+      var SI_UNIT = /[Mm][Mm][Oo][Ll]|(?:^|[^A-Za-z])mM(?![A-Za-z])/;
+      // A panel may declare its units once in a header rather than on every row.
+      var siDeclared = /\b(?:all\s+)?(?:results?|values?|units?)\b[^\n]{0,24}\b(?:in|:)\s*mmol/i.test(text) ||
+                       /\(\s*(?:all\s+)?(?:results?|values?|units?)\b[^)]{0,30}mmol[^)]*\)/i.test(text);
+      tryField("total_c", TC_PAT, ranged(TC_OPTS, 1.5, 15, siDeclared ? {} : { requireUnit: SI_UNIT }));
       mmol = found.total_c !== undefined;
     }
     if (found.total_c !== undefined) { out.chol_unit = mmol ? "mmol/L" : "mg/dL"; found.chol_unit = "scanned"; }
@@ -651,7 +686,12 @@
       // "\bs?cr\b" also matches the "SCr" (serum creatinine) shorthand.
       var crResult = scanField(text, "(?:creatinine|creat(?:inine)?\\b|\\bs?cr\\b)(?!\\s*(?:cl\\b|clearance))", { badWords: ["album", "alb", "urine", "uacr", "ratio", "micro"], rejectLine: /album|ratio|\buacr\b|urine|clearance|kinase|\baki\b|acute\s+kidney|baseline|resume\s+when|\bgoal\b|\btarget\b/i, noSlashBefore: true, min: 0.2, max: 15 });
       if (crResult !== null) {
-        var e = ckdEpi2021(crResult.value, out.age, out.sex);
+        // mg/L (continental reporting) is one tenth of mg/dL. Read as mg/dL, a
+        // perfectly normal 9.8 mg/L became an eGFR of 6 - dialysis territory.
+        var crVal2 = crResult.value;
+        var crLine = (text.match(new RegExp("[^\\n]*\\b" + crVal2.toString().replace(".", "\\.") + "[^\\n]*")) || [""])[0];
+        if (/mg\s*\/\s*l\b/i.test(crLine) && !/mg\s*\/\s*dl/i.test(crLine)) crVal2 = crVal2 / 10;
+        var e = ckdEpi2021(crVal2, out.age, out.sex);
         if (e !== null) { out.egfr = e; found.egfr = "computed_from_cr"; }
       } else {
         // µmol/L (SI units): explicit unit required on the line; convert /88.4.

@@ -88,6 +88,10 @@ rather than a bespoke script whenever a new paste layout turns up:
   "cannot exclude"), hypothetical and projected numbers, a change value versus
   the value it changed to, the digits inside a unit expression, and the several
   pressures that are not the systolic.
+- `cases-units-and-limits.json` — units and reference limits: mg/L versus mg/dL
+  creatinine, mM, IFCC HbA1c, a panel that declares its units in a header, a
+  reference limit standing before the value versus a threshold that IS the value,
+  an equation year between label and value, and fullwidth digits.
 
 Most bugs found so far fall into three classes, which is the most productive
 place to aim a new case:
