@@ -252,6 +252,15 @@
       var rawAfter = text.slice(m.index + m[0].length);
       if (opts.noSlashAfter && /^\s*\//.test(rawAfter)) continue;
       var after = lineAfter(text, m.index + m[0].length);
+      // Some lab reports put the Ref Range column BEFORE the Value column
+      // ("Cholesterol   100-199   197"). Step over a leading range when a real
+      // number follows it, otherwise the range's low bound becomes the result.
+      if (opts.skipRange) {
+        // The whitespace before the next number is REQUIRED: without it the
+        // pattern could split "60-89" into "60-8" and a leftover "9".
+        var rng = after.match(/^(\s*[\d.,]+\s*[-–]\s*[\d.,]+[^\d\n]{0,12}\s)(?=[<>≤≥]?\s*\d)/);
+        if (rng) after = after.slice(rng[1].length);
+      }
       // reject a value that is the lower bound of a range like "BMI 30.0-34.9"
       // (an obesity/category descriptor, not a measured value).
       if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
@@ -499,9 +508,9 @@
     var TC_PAT = "(?:total[\\s,]*chol\\w*|chol\\w*[\\s,]*total|chol\\w*|\\btc\\b)";
     var HDL_PAT = "(?:hdl(?:[\\s-]?c)?(?:\\s*cholesterol)?|high[\\s-]?density\\s+lipoprotein)";
     var LDL_PAT = "(?:\\bldl(?:[\\s-]?c)?\\b(?:\\s*(?:chol\\w*|calc\\w*|direct))?|low[\\s-]?density\\s+lipoprotein)";
-    var TC_OPTS = { badWords: ["hdl", "ldl", "vldl", "non"], rejectBetween: /hdl|ldl|non/i, noSlashAfter: true, allowNextLine: true };
-    var HDL_OPTS = { badWords: ["non"], noSlashBefore: true, allowNextLine: true };
-    var LDL_OPTS = { badWords: ["non"], rejectBetween: /\bhdl\b|non/i, noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, allowNextLine: true };
+    var TC_OPTS = { badWords: ["hdl", "ldl", "vldl", "non"], rejectBetween: /hdl|ldl|non/i, noSlashAfter: true, allowNextLine: true, skipRange: true };
+    var HDL_OPTS = { badWords: ["non"], noSlashBefore: true, allowNextLine: true, skipRange: true };
+    var LDL_OPTS = { badWords: ["non"], rejectBetween: /\bhdl\b|non/i, noSlashBefore: true, noSlashAfter: true, rejectLine: /ratio/i, allowNextLine: true, skipRange: true };
     function ranged(o, min, max, extra) { var r = Object.assign({}, o, { min: min, max: max }); if (extra) Object.assign(r, extra); return r; }
     // Units: mg/dL first (the Epic default). If no mg/dL-magnitude total is labeled,
     // retry as an SI panel ("Total cholesterol: 5.4 mmol/L") — a small-magnitude
@@ -519,7 +528,7 @@
     tryField("ldl_c", LDL_PAT, mmol ? ranged(LDL_OPTS, 0.2, 12) : ranged(LDL_OPTS, 10, 500));
     // A1c: robust table-aware scan (ignores reference ranges + diagnostic comment).
     if (found.hba1c === undefined) { var a1c = scanA1c(text); if (a1c !== null) { out.hba1c = a1c; found.hba1c = "scanned"; } }
-    tryField("egfr", "\\be?-?gfr(?:cr|cys|creat)?\\b", { min: 1, max: 200, allowNextLine: true });
+    tryField("egfr", "\\be?-?gfr(?:cr|cys|creat)?\\b", { min: 1, max: 200, allowNextLine: true, skipRange: true });
     // UACR: accept slash, space, or dash between albumin and creatinine
     tryField("uacr", "(?:uacr|(?:urine\\s+)?(?:micro)?album(?:in)?[/\\s-]+creat(?:inine)?(?:\\s+ratio)?|alb[/\\s-]+cr(?:eat)?|\\bacr\\b)", { thousands: true, min: 0.1, max: 25000 });
     // Fallback: eGFR from serum creatinine (only if eGFR wasn't found directly).
@@ -1005,6 +1014,8 @@
       var bl = n.beforeLine;
       if (!/chol|hdl|ldl|lipoprotein|\btc\b/.test(bl)) return;
       if (/non[\s-]?hdl|\bldl\b|vldl|trig|ratio/.test(bl)) return;      // distractor lines
+      // a reference-range bound is not a result (see the creatinine harvest below)
+      if (/[-–]\s*$/.test(bl) || /^\s*[-–]\s*\d/.test(n.after)) return;
       var si = /^\s*mmol/i.test(n.after);                                  // SI-unit panel
       if (/hdl|high[\s-]?density/.test(bl)) { if (V.hdl_c == null && (si ? (n.val >= 0.2 && n.val <= 5) : (n.val >= 5 && n.val <= 150))) V.hdl_c = n.val; return; }
       if (/total|\btc\b|chol/.test(bl)) { if (V.total_c == null && (si ? (n.val >= 1.5 && n.val <= 15) : (n.val >= 40 && n.val <= 500))) V.total_c = n.val; }

@@ -28,8 +28,21 @@ node verification/parsing/audit-test.js
 node verification/parsing/integration-test.js
 node verification/parsing/adversarial-probe.js
 node verification/parsing/run-cases.js verification/parsing/cases-*.json
+node verification/parsing/units-integration-test.js
+node verification/parsing/robustness-test.js
 node verification/parsing/edge-generator.js   # expects a 0.00% false-alarm rate
 ```
+
+`units-integration-test.js` closes the parse-to-risk loop: it asserts that the
+same patient written in mmol/L and in mg/dL produces an identical risk across
+every model, both sexes and both horizons. The parser never converts units, it
+only reports which one it saw, so a unit that fails to reach the engine would be
+silently wrong in a way no parsing assertion can catch.
+
+`robustness-test.js` is the crash floor: empty input, an unresolved SmartPhrase
+template, CRLF, non-breaking spaces, HTML, JSON, emoji, a 40 KB line, regex
+metacharacters and unterminated brackets. The parser must never throw and never
+emit NaN or Infinity.
 
 `run-cases.js` is a data-driven runner: each `cases-*.json` file is a list of
 `{name, text, want, note}` records, where `want` names only the fields that case
@@ -43,6 +56,16 @@ rather than a bespoke script whenever a new paste layout turns up:
   and the guideline pathway.
 - `cases-layout-units.json` — Epic lab-row naming, SI (mmol/L and µmol/L) panels,
   reference-range columns, and decimal-comma formats.
+- `cases-bmi.json` — every layout BMI arrives in: `@LASTBMI(n)@` reading lists
+  with each separator, result-table rows, prose, obesity-class descriptors, and
+  height/weight without a BMI.
+- `cases-targets-family.json` — treatment targets ("LDL goal <70") and relatives'
+  values, neither of which is a measurement of this patient. These leak into
+  *every* numeric field if unguarded.
+- `cases-lab-layouts.json` — result-table column orders (including Ref Range
+  before Value), reference-lab report styles, and the distractor numbers in a
+  note header: MRN, DOB, phone, room, order ids, other vitals, and a metabolic
+  panel.
 
 The governing rule for every expectation: **a wrong value is far worse than a
 blank.** When the text is genuinely ambiguous — a resolved diagnosis, a held
