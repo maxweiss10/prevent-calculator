@@ -539,7 +539,11 @@
         // topic and ends the family-history block, even though it is not a
         // standalone header. Indented rows and lines led by a relative's name
         // still belong to the relatives.
-        if (fam && /^\S[^:\n]{0,30}:/.test(ln) && !RELATIVE_RE.test(ln.split(":")[0])) fam = false;
+        // The family-history block covers its INDENTED rows and any line led by a
+        // relative's name. A line back at the left margin has returned to the
+        // patient — with or without a "Label:" prefix, so a bare "BMI 27.4" after
+        // the block is the patient's own and must not be suppressed.
+        if (fam && /^\S/.test(ln) && !RELATIVE_RE.test(ln.split(/[:\s]/)[0]) && !FAMILY_CUE_RE.test(ln)) fam = false;
         if (OTHER_PERSON_RE.test(ln.slice(0, d))) {
           out.push({ start: pos, end: pos + ln.length, reason: "another person's value (donor or fetal)" });
         } else if (fam) {
@@ -554,15 +558,16 @@
           var probe = ln.replace(/goals?\s+of\s+care|\bat\s+(?:goal|target)\b/gi,
                                  function (x) { return x.replace(/./g, " "); });
           var cue = probe.search(TARGET_CUE);
+          var why = "a treatment target, not a measurement";
           var hyp = probe.search(HYPOTHETICAL_CUE);
-          if (hyp >= 0 && (cue < 0 || hyp < cue)) cue = hyp;
+          if (hyp >= 0 && (cue < 0 || hyp < cue)) { cue = hyp; why = "a hypothetical or projected value"; }
           if (cue >= 0) {
             // Mask only to the end of the SENTENCE, not the line: "BP goal <130.
             // Today BP 142/88" states the target and then the actual reading.
             var stop = ln.slice(cue).search(/[.;]\s/);
             var end = stop >= 0 ? cue + stop + 1 : ln.length;
             if (/\d/.test(ln.slice(cue, end)))
-              out.push({ start: pos + cue, end: pos + end, reason: "a treatment target, not a measurement" });
+              out.push({ start: pos + cue, end: pos + end, reason: why });
           }
         }
       }
