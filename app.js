@@ -314,6 +314,9 @@
       // (an obesity/category descriptor, not a measured value).
       if (opts.rejectRange && /^\s*[<>≤≥]?\s*\d[\d.,]*\s*[-–]\s*\d/.test(after)) continue;
       if (opts.commaCut) { var c = after.indexOf(","); if (c >= 0) after = after.slice(0, c); }
+      // Strip unit expressions that contain digits of their own, so an empty result
+      // ("eGFR: mL/min/1.73m2") cannot return 1.73 as the value.
+      after = after.replace(/m[lL]\s*\/\s*min(?:\s*\/\s*1\.73\s*m\s*\^?\s*[2²]?)?|1\.73\s*m\s*\^?\s*[2²]|kg\s*\/\s*m\s*\^?\s*[2²]/gi, " ");
       // "4-variable", "25-hydroxy", "12-lead": a number bonded to a word by a hyphen
       // is part of that word. Without this "eGFR MDRD 4-variable 72" reads as 4.
       after = after.replace(/\b\d+(?=-[A-Za-z])/g, " ");
@@ -323,6 +326,9 @@
       // "increased from 28.1 to 31.4", "was 33, now 27.4" — in a then/now pair the
       // CURRENT value is the second one; taking the first reports a stale number.
       var thenNow = after.match(/^[^\d\n]{0,16}\b(?:from|was|previously|prior|baseline)\b[^\d\n]{0,8}[\d.,]+\s*[,;]?\s*(?:to|now|currently|today|improved\s+to|down\s+to|up\s+to)\b[^\d\n]{0,8}([\d.,]+)/i);
+      // "down 42 points to 118", "improved by 30 to 98": the first number is the
+      // CHANGE and the second is the value.
+      if (!thenNow) thenNow = after.match(/^[^\d\n]{0,16}\b(?:down|up|decreased|increased|fell|rose|dropped|improved|reduced)\b[^\d\n]{0,10}[\d.,]+\s*(?:points?|units?|mg\/dl|%)?\s*\bto\b[^\d\n]{0,8}([\d.,]+)/i);
       if (thenNow) after = " " + thenNow[1];
       var result = extractNum(after, opts.thousands);
       var unitScope = after; // where a required unit (opts.requireUnit) must appear
@@ -515,6 +521,9 @@
   // real measurements for EVERY numeric field, which silently changes the risk.
   // The cue must sit BEFORE the number, so "BP 128/78, at goal" still parses.
   var TARGET_CUE = /\b(?:goals?|targets?|aim(?:ing)?\s+for|keep\s+(?:it\s+)?(?:under|below)|maintain|should\s+be|desired?|ideally)\b/i;
+  // Numbers in a hypothetical or a forecast never happened: "If LDL were 70 the
+  // risk would fall", "projected LDL on statin ~80".
+  var HYPOTHETICAL_CUE = /\bif\b(?=[^.;\n]{0,40}\b(?:were|was|is|drops?|fell|reaches?)\b)|\bhypothetical\w*|\bprojected\b|\bwould\s+(?:be|fall|drop|rise)\b|\bestimated\s+to\s+be\b|\bsuppose\b/i;
   // Masking is length-preserving so character offsets stay valid for the source
   // highlighter, which still shows these numbers (flagged, not silently dropped).
   // The spans themselves, each with WHY it is excluded. Reported rather than just
@@ -545,6 +554,8 @@
           var probe = ln.replace(/goals?\s+of\s+care|\bat\s+(?:goal|target)\b/gi,
                                  function (x) { return x.replace(/./g, " "); });
           var cue = probe.search(TARGET_CUE);
+          var hyp = probe.search(HYPOTHETICAL_CUE);
+          if (hyp >= 0 && (cue < 0 || hyp < cue)) cue = hyp;
           if (cue >= 0) {
             // Mask only to the end of the SENTENCE, not the line: "BP goal <130.
             // Today BP 142/88" states the target and then the actual reading.
@@ -673,7 +684,7 @@
   // Generic names first, then common US brand names — a med list may print either.
   var ANTIHTN_RE = /\b(?:lisinopril|enalapril|enalaprilat|ramipril|benazepril|captopril|quinapril|fosinopril|perindopril|trandolapril|moexipril|losartan|valsartan|olmesartan|irbesartan|candesartan|telmisartan|azilsartan|eprosartan|amlodipine|nifedipine|felodipine|nicardipine|isradipine|nisoldipine|diltiazem|verapamil|metoprolol|atenolol|carvedilol|bisoprolol|propranolol|labetalol|nebivolol|nadolol|betaxolol|hydrochlorothiazide|hctz|chlorthalidone|chlorothiazide|indapamide|metolazone|spironolactone|eplerenone|triamterene|amiloride|furosemide|torsemide|bumetanide|clonidine|hydralazine|minoxidil|methyldopa|doxazosin|terazosin|prazosin|aliskiren|guanfacine|norvasc|cozaar|hyzaar|diovan|benicar|micardis|avapro|atacand|teveten|edarbi|lopressor|toprol|tenormin|coreg|bystolic|corgard|sectral|cardizem|cartia|tiazac|calan|verelan|isoptin|covera|adalat|procardia|sular|plendil|cardene|lasix|microzide|aldactone|inspra|bumex|demadex|edecrin|zaroxolyn|lozol|catapres|lotrel|zestril|prinivil|vasotec|altace|accupril|monopril|mavik|aceon|univasc|lotensin|capoten|cardura|hytrin|minipress|aldomet|tekturna|apresoline|loniten|dyazide|maxzide|tenoretic|exforge|tribenzor|azor|twynsta|amturnide)\b/i;
   // Lines that mean a drug is NOT actually being taken.
-  var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|\bhold(?:ing|s)?\b|\bheld\b|not\s+tak(?:ing|en)|hasn'?t\s+taken|ran\s+out|declined/i;
+  var DRUG_SKIP_LINE = /allerg|adverse|intoleran|discontinu|\bd\/?c(?:'?d|ed)?\b|stopped|inactive|no longer|\bhold(?:ing|s)?\b|\bheld\b|not\s+tak(?:ing|en)|hasn'?t\s+taken|ran\s+out|declined|contraindicat\w*/i;
   // A drug the plan INTENDS, offers, or has already failed is not current therapy.
   // Tense matters: "start atorvastatin" is a plan, "started atorvastatin in 2019"
   // is a current medication, so "started" must not match here.
@@ -778,7 +789,7 @@
   var DM_NOTDX_LINE = /\bscreening\b|health\s+maintenance|diabetic[^a-z\n]{0,3}(?:diet|education|educator|teaching|supplies|foot\s+exam)|diabetes\s+education|\bgdm\b|gestational/i;
   // A PAST or MERELY POSSIBLE diagnosis. These make the answer ambiguous rather
   // than No: the field is left blank for the clinician instead of being asserted.
-  var DM_AMBIG_LINE = /\bresolved\b|\bin\s+remission\b|\bremission\b|diabetic\s+range/i;
+  var DM_AMBIG_LINE = /\bresolved\b|\bin\s+remission\b|\bremission\b|diabetic\s+range|\bpossible\b|\bprobable\b|\bsuspect\w*|\bpresumed\b|\bquestionable\b|\blikely\b|cannot\s+(?:exclude|rule\s+out)|can'?t\s+(?:exclude|rule\s+out)|to\s+be\s+confirmed|awaiting\s+confirm\w*|\bprovisional\b/i;
 
   // Returns { state: "yes"|"ambiguous"|"none", evidence }.
   function diabetesSignal(text) {
@@ -880,11 +891,14 @@
   }
 
   function detectSmoking(text) {
+    // 0) a double negative ("not a non-smoker") inverts twice; rather than guess
+    //    which way the writer meant it, leave the field for the clinician.
+    if (/\b(?:not|isn'?t|is\s+not|never)\s+a?\s*(?:non-?\s*smoker|never[\s-]*smoker)\b/i.test(text)) return null;
     // 1) explicit status wins outright
     var st = smokingStatusLine(text);
     if (st) return st.value === null ? null : st;
     // 2) current-use signals, each guarded by its own line's context
-    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*?])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b|smokers?\b(?!\s*[:*?])(?!['’]s))/gi;
+    var curRe = /\b(?:every\s*day\s*smoker|some\s*day\s*smoker|current\s+every\s*day|current\s+some\s*day|currently\s+smok\w*|actively\s+smok\w*|active\s+tobacco\s+use|smoking\s+status\s*:?\s*current|tobacco\s*(?:use)?\s*:?\s*current|current\s+smoker(?!\s*[:*?])|[1-9]\d*\s*(?:cigarettes?|packs?)\s*(?:per|\/)\s*day|\bppd\b|smokes?\s+(?:socially|occasionally|daily|regularly)|social\s+smoker|occasional(?:ly)?\s+smok\w*|smokers?\b(?!\s*[:*?])(?!['’]s))/gi;
     var cur, negatedEvidence = null;
     while ((cur = curRe.exec(text)) !== null) {
       var pre = text.slice(Math.max(0, cur.index - 25), cur.index);

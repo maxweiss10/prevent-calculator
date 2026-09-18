@@ -84,6 +84,10 @@ rather than a bespoke script whenever a new paste layout turns up:
   offers or has already failed versus one the patient takes; a then/now pair; a
   clause that calls its own value old; and specimens belonging to a transplant
   donor or a fetus.
+- `cases-hedging.json` — certainty and arithmetic: hedged diagnoses ("possible",
+  "cannot exclude"), hypothetical and projected numbers, a change value versus
+  the value it changed to, the digits inside a unit expression, and the several
+  pressures that are not the systolic.
 
 Most bugs found so far fall into three classes, which is the most productive
 place to aim a new case:
