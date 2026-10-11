@@ -1,5 +1,12 @@
 # Parser test harness
 
+> **All patients in this repository are fictional.** Every age, sex, vital sign, lab value, date,
+> medication and problem list in the test cases, test scripts, code comments and commit messages is
+> invented test data, written to mimic the layout of Epic SmartLink output. None of it comes from a
+> real patient. That includes the dated examples that look most like a chart print: the 74-year-old
+> man with BP and BMI readings from June and September 2026 and an A1c table, and the 62-year-old
+> woman in `integration-test.js` with July 2026 readings, lipids, problem list and medications.
+
 These tests exercise the **text parser** in [`app.js`](../../app.js) (the code that
 scrapes values out of pasted Epic text). They are separate from the math oracle in
 [`../`](../), which verifies the risk engine against CRAN `preventr`.

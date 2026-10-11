@@ -209,7 +209,7 @@
     <div>
       <div class="card">
         <h2>1 · Paste from Epic</h2>
-        <textarea id="paste" placeholder="Paste the output of your PREVENT dot phrase here…"></textarea>
+        <textarea id="paste" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Paste the output of your PREVENT dot phrase here…"></textarea>
         <div class="row">
           <button class="primary" id="parseBtn">Parse pasted values</button>
           <button class="link" id="exampleBtn">Load example</button>
@@ -454,7 +454,7 @@
       input = '<select id="' + idp + '" data-key="' + f.key + '">' +
         '<option value="">—</option><option value="true">Yes</option><option value="false">No</option></select>';
     } else {
-      input = '<input type="number" step="any" id="' + idp + '" data-key="' + f.key + '" placeholder="—">';
+      input = '<input type="number" step="any" autocomplete="off" id="' + idp + '" data-key="' + f.key + '" placeholder="—">';
     }
     return '<div class="field"><label><span class="dot" id="dot_' + f.key + '"></span>' + f.label + '</label>' +
       '<div class="in">' + input + (unit ? '<span class="unit" id="u_' + f.key + '">' + unit + '</span>' : '') + '</div></div>';
@@ -1205,6 +1205,8 @@
     document.getElementById("sourceCard").style.display = "none";
     setDots({}); onFieldInput();
   });
+  // Leaving the page wipes the paste and every field, so Back / reopened tabs never bring a patient's values back.
+  window.addEventListener("pagehide", function () { document.getElementById("clearBtn").click(); });
   var EXAMPLE = ["PREVENT INPUTS", "Age: 58", "Sex: Female", "SBP: 140", "Total cholesterol: 213",
     "HDL: 46", "LDL: 142", "Diabetes: No", "Current smoker: Yes", "BMI: 29.3", "eGFR: 78",
     "On antihypertensive: Yes", "On statin: No",

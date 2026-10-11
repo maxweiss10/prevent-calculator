@@ -139,3 +139,7 @@ institutional calculator. Verify every value before acting.
 **For educational and clinician-support use only.** Not a substitute for clinical
 judgment or a validated institutional calculator. Always verify each value before
 acting on a result.
+
+## Test data
+
+All patients in this repository's tests, comments and history are fictional; see [`verification/parsing/README.md`](verification/parsing/README.md).
